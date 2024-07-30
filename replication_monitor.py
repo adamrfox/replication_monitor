@@ -9,9 +9,13 @@ import json
 import time
 import os
 import keyring
+from datetime import datetime
 import urllib.parse
 import urllib3
 urllib3.disable_warnings()
+
+import pprint
+pp = pprint.PrettyPrinter(indent=4)
 
 def usage():
     print("Usage goes here!")
@@ -41,10 +45,6 @@ def api_login(qumulo, user, password, token):
             password = getpass.getpass("Password: ")
         payload = {'username': user, 'password': password}
         payload = json.dumps(payload)
-        if not in_keyring:
-            use_ring = input("Put these credentials into keyring? [y/n]: ")
-            if use_ring.startswith('y') or use_ring.startswith('Y'):
-                keyring.set_password(RING_SYSTEM, user, password)
         autht = requests.post('https://' + qumulo + '/api/v1/session/login', headers=headers, data=payload,
                               verify=False, timeout=timeout)
         dprint(str(autht.ok))
@@ -52,6 +52,10 @@ def api_login(qumulo, user, password, token):
         dprint(str(auth))
         if autht.ok:
             auth_headers = {'accept': 'application/json', 'Content-type': 'application/json', 'Authorization': 'Bearer ' + auth['bearer_token']}
+            if not in_keyring:
+                use_ring = input("Put these credentials into keyring? [y/n]: ")
+                if use_ring.startswith('y') or use_ring.startswith('Y'):
+                    keyring.set_password(RING_SYSTEM, user, password)
         else:
             sys.stderr.write("ERROR: " + auth['description'] + '\n')
             exit(2)
@@ -95,6 +99,31 @@ def get_token_from_file(file):
     dprint(t_data['bearer_token'])
     return(t_data['bearer_token'])
 
+def read_conf_file(cf, good_states, ignore_paths, ignore_tags):
+    ops = []
+    with open(cf, 'r') as fp:
+        for line in fp:
+            line = line.rstrip('\n')
+            if line.startswith('#') or line == "":
+                continue
+            lf = line.split('=')
+            ops = lf[1].split(',')
+            if lf[0] == "good_states":
+                good_states = ops
+            elif lf[0] == "ignore_paths":
+                ignore_paths = ops
+            elif lf[0] == "ignore_tags":
+                ignore_tags = ops
+    fp.close()
+    return(good_states, ignore_paths, ignore_tags)
+
+def find_alert(job_data):
+    if job_data['src_path'] not in ignore_paths:
+        if job_data['state'] in good_states:
+            if 'replication_enabled' not in ignore_tags and job_data['enabled']:
+                return("")
+    return(job_data['id'])
+
 if __name__ == "__main__":
     DEBUG = False
     default_token_file = ".qfsd_cred"
@@ -105,10 +134,17 @@ if __name__ == "__main__":
     password = ""
     timeout = 30
     RING_SYSTEM = "q_rep_mon"
+    good_states = ['ESTABLISHED']
+    ignore_paths = []
+    ignore_tags = []
     paths = []
+    alerts = []
+    conf_file = "./rep_mon.conf"
+    fp = ""
+    outfile = ""
 
-    optlist, args = getopt.getopt(sys.argv[1:], 'hDt:c:f:', ['help', 'DEBUG', 'token=', 'creds=', 'token-file=',
-                                                                     ])
+    optlist, args = getopt.getopt(sys.argv[1:], 'hDt:c:f:C:o:', ['help', 'DEBUG', 'token=', 'creds=', 'token-file=',
+                                                                   'config-file=', 'output-file='  ])
     for opt, a in optlist:
         if opt in ['-h', '--help']:
             usage()
@@ -123,10 +159,19 @@ if __name__ == "__main__":
                 user = a
         if opt in ('-f', '--token-file'):
             token_file = a
+        if opt in ('c','--config-file'):
+            conf_file = a
+        if opt in ('-o', '--output-file'):
+            outfile = a
 
     qumulo = args.pop(0)
     RING_SYSTEM = RING_SYSTEM + "_" + qumulo
     paths = args
+    if os.path.isfile(conf_file):
+        (good_states, ignore_paths, ignore_tags) = read_conf_file(conf_file, good_states, ignore_paths, ignore_tags)
+        dprint("GOOD_STATES: " + str(good_states))
+        dprint("IGNORE_PATHS: " + str(ignore_paths))
+        dprint("IGNORE_TAGS: " + str(ignore_tags))
     if not user and not token:
         if not token_file:
             token_file = default_token_file
@@ -134,3 +179,32 @@ if __name__ == "__main__":
             token = get_token_from_file(token_file)
     auth = api_login(qumulo, user, password, token)
     dprint(str(auth))
+    rep_status = qumulo_get(qumulo, '/v2/replication/source-relationships/status/')
+#    pp.pprint(rep_status)
+    if outfile:
+        fp = open(outfile + '.new', 'w')
+    oprint(fp, 'Source:,Path:,Target:,Path,Mode:,State:,Job State:,Enabled:, Recovery Point:')
+    job_data = []
+    for job in rep_status:
+        jd = {}
+        jd['id'] = job['id']
+        jd['src'] = job['source_cluster_name']
+        jd['src_path'] = job['source_root_path']
+        jd['tgt'] = job['target_cluster_name']
+        jd['tgt_path'] = job['target_root_path']
+        jd['mode'] = job['replication_mode']
+        jd['state'] = job['state']
+        jd['job_state'] = job['job_state']
+        jd['enabled'] = job['replication_enabled']
+        if job['recovery_point']:
+            rt = job['recovery_point'].split('.')
+            rts = datetime.strptime(rt[0], "%Y-%m-%dT%H:%M:%S")
+            jd['rec_point'] = rts.strftime("%Y-%m-%d %H:%M:%S")
+        alert_id = find_alert(jd)
+        if alert_id:
+            alerts.append(jd)
+        job_data.append(jd)
+    pp.pprint(alerts)
+    if outfile:
+        fp.close()
+        os.replace(outfile + 'new', outfile)
