@@ -218,7 +218,8 @@ if __name__ == "__main__":
             token = get_token_from_file(token_file)
     auth = api_login(qumulo, user, password, token)
     dprint(str(auth))
-    now = int(datetime.utcnow().timestamp())
+    now = int(time.time())
+    # now = int(datetime.utcnow().timestamp())
     rep_status = qumulo_get(qumulo, '/v2/replication/source-relationships/status/')
 #    pp.pprint(rep_status)
     if outfile:
