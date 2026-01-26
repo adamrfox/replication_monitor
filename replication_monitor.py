@@ -10,6 +10,9 @@ import time
 import os
 import keyring
 import keyring.backend
+if platform.system == "Linux":
+    from keyrings.alt.file import PlaintextKeyring
+    keyring.set_keyring(PlaintextKeyring())
 from datetime import datetime
 import urllib.parse
 import urllib3
