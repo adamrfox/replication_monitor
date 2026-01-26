@@ -129,7 +129,7 @@ def find_alert(job_data):
     if job_data['src_path'] not in ignore_paths:
         if job_data['state'] in good_states:
             if 'error_from_last_job' in ignore_tags or job_data['error'] == '':
-                if 'replication_enabled' not in ignore_tags and job_data['enabled']:
+                if 'replication_enabled' in ignore_tags or job_data['enabled']:
                     if rec_window:
                         rp = job_data['rec_point_dt']
                         print(job_data['src_path'] + " : " + str(now) + " : " + str(rp) + " = " + str(now - rp))
