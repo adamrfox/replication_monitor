@@ -122,17 +122,20 @@ def find_alert(job_data):
     reason = ""
     if job_data['src_path'] not in ignore_paths:
         if job_data['state'] in good_states:
-            if 'replication_enabled' not in ignore_tags and job_data['enabled']:
-                if rec_window:
-                    rp = job_data['rec_point_dt']
-                    print(job_data['src_path'] + " : " + str(now) + " : " + str(rp) + " = " + str(now - rp))
-                    if (now - rp) <= rec_window:
-                        return("", reason)
-                    reason = "Outside of Recovery Window"
+            if job_data['error'] == '':
+                if 'replication_enabled' not in ignore_tags and job_data['enabled']:
+                    if rec_window:
+                        rp = job_data['rec_point_dt']
+                        print(job_data['src_path'] + " : " + str(now) + " : " + str(rp) + " = " + str(now - rp))
+                        if (now - rp) <= rec_window:
+                            return("", reason)
+                        reason = "Outside of Recovery Window"
+                    else:
+                        return("",reason)
                 else:
-                    return("",reason)
+                    reason = "Replication is not enabled"
             else:
-                reason = "Replication is not enabled"
+                    reason = job_data['error']
         else:
             reason = "Job State is " + job_data['state']
     else:
@@ -237,6 +240,7 @@ if __name__ == "__main__":
         jd['state'] = job['state']
         jd['job_state'] = job['job_state']
         jd['enabled'] = job['replication_enabled']
+        jd['error'] - job['error_from_last_job']
         if job['recovery_point']:
             rt = job['recovery_point'].split('.')
             rts = datetime.strptime(rt[0], "%Y-%m-%dT%H:%M:%S")
