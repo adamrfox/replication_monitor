@@ -8,6 +8,7 @@ import urllib.parse
 import json
 import time
 import os
+import platform
 import keyring
 import keyring.backend
 if platform.system == "Linux":
