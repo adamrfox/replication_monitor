@@ -11,7 +11,7 @@ import os
 import platform
 import keyring
 import keyring.backend
-if platform.system == "Linux":
+if platform.system() == "Linux":
     from keyrings.alt.file import PlaintextKeyring
     keyring.set_keyring(PlaintextKeyring())
 from datetime import datetime
