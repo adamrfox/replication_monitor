@@ -141,7 +141,7 @@ def find_alert(job_data):
                 else:
                     reason = "Replication is not enabled"
             else:
-                uu    reason = job_data['error']
+                reason = job_data['error']
         else:
             reason = "Job State is " + job_data['state']
     else:
