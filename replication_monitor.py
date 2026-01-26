@@ -240,7 +240,7 @@ if __name__ == "__main__":
         jd['state'] = job['state']
         jd['job_state'] = job['job_state']
         jd['enabled'] = job['replication_enabled']
-        jd['error'] - job['error_from_last_job']
+        jd['error'] = job['error_from_last_job']
         if job['recovery_point']:
             rt = job['recovery_point'].split('.')
             rts = datetime.strptime(rt[0], "%Y-%m-%dT%H:%M:%S")
