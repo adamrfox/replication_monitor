@@ -259,4 +259,4 @@ if __name__ == "__main__":
     pp.pprint(alerts)
     if outfile:
         fp.close()
-        os.replace(outfile + 'new', outfile)
+        os.replace(outfile + '.new', outfile)
