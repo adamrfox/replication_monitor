@@ -128,7 +128,7 @@ def find_alert(job_data):
     reason = ""
     if job_data['src_path'] not in ignore_paths:
         if job_data['state'] in good_states:
-            if 'error_from_last_job' not in ignore_tags and job_data['error'] == '':
+            if 'error_from_last_job' in ignore_tags or job_data['error'] == '':
                 if 'replication_enabled' not in ignore_tags and job_data['enabled']:
                     if rec_window:
                         rp = job_data['rec_point_dt']
