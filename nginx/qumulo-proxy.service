@@ -1,0 +1,29 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Systemd service: qumulo-proxy.service
+# Save to: /etc/systemd/system/qumulo-proxy.service
+# ─────────────────────────────────────────────────────────────────────────────
+[Unit]
+Description=Qumulo HTTPS Proxy (self-signed cert bypass)
+After=network.target
+PartOf=qumulo-monitor.target
+
+[Service]
+Type=simple
+User=nobody
+WorkingDirectory=/opt/qumulo-monitor/proxy
+ExecStart=/usr/bin/node /opt/qumulo-monitor/proxy/proxy.js
+Restart=on-failure
+RestartSec=5
+Environment=PROXY_PORT=3007
+Environment=NODE_ENV=production
+
+# Restrict to localhost only (no external access needed)
+IPAddressDeny=any
+IPAddressAllow=127.0.0.1
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=qumulo-proxy
+
+[Install]
+WantedBy=multi-user.target qumulo-monitor.target

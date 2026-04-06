@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Systemd service: qumulo-monitor.service
+# Save to: /etc/systemd/system/qumulo-monitor.service
+# ─────────────────────────────────────────────────────────────────────────────
+[Unit]
+Description=Qumulo Replication Monitor Backend
+After=network.target qumulo-proxy.service
+Requires=qumulo-proxy.service
+
+[Service]
+Type=simple
+User=nobody
+WorkingDirectory=/opt/qumulo-monitor/backend
+ExecStart=/usr/bin/node /opt/qumulo-monitor/backend/src/index.js
+Restart=on-failure
+RestartSec=5
+
+Environment=NODE_ENV=production
+Environment=BACKEND_PORT=3006
+Environment=PROXY_URL=http://127.0.0.1:3007
+Environment=DB_PATH=/var/lib/qumulo-monitor/qumulo-monitor.db
+Environment=JWT_SECRET=CHANGE_THIS_TO_A_RANDOM_SECRET
+Environment=FRONTEND_ORIGIN=http://localhost:3008
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=qumulo-monitor
+
+[Install]
+WantedBy=multi-user.target
