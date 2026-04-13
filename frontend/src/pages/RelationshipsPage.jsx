@@ -257,6 +257,12 @@ export function RelationshipDetailPage() {
     load();
   };
 
+  const handleAckAll = async () => {
+    const result = await api.acknowledgeAllRelAlerts(id);
+    toast(`${result.acknowledged} alert${result.acknowledged !== 1 ? 's' : ''} acknowledged`, 'success');
+    load();
+  };
+
   return (
     <>
       <div className="page-header">
@@ -399,6 +405,14 @@ export function RelationshipDetailPage() {
             {(data.alerts || []).length === 0 ? (
               <EmptyState icon={<span style={{ fontSize: 32 }}>✓</span>} title="No alerts" body="No alerts have been triggered for this relationship." />
             ) : (
+              <>
+                {isAdmin && data.alerts.some(a => !a.acknowledged) && (
+                  <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
+                    <button className="btn btn-secondary btn-sm" onClick={handleAckAll}>
+                      Acknowledge All ({data.alerts.filter(a => !a.acknowledged).length})
+                    </button>
+                  </div>
+                )}
               <table className="data-table">
                 <thead><tr><th>Time</th><th>Type</th><th>Message</th><th>Ack</th></tr></thead>
                 <tbody>
@@ -416,6 +430,7 @@ export function RelationshipDetailPage() {
                   ))}
                 </tbody>
               </table>
+              </>
             )}
           </div>
         )}

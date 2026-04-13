@@ -116,6 +116,7 @@ function initSchema() {
   // Insert default settings if not present
   const defaults = {
     default_lag_threshold_minutes: '60',
+    alert_retention_days: '90',
     default_snapshot_queue_threshold: '3',
     poll_interval_seconds: '60',
     alert_cooldown_minutes: '30',

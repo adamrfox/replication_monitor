@@ -41,7 +41,7 @@ export default function SettingsPage() {
       </div>
       <div className="page-body">
         <div className="tabs">
-          {[['general', 'General'], ['smtp', 'Email / SMTP'], ['alerts', 'Alert Recipients']].map(([id, label]) => (
+          {[['general', 'General'], ['smtp', 'Email / SMTP'], ['alerts', 'Alert Recipients'], ['maintenance', 'Maintenance']].map(([id, label]) => (
             <button key={id} className={`tab-btn ${tab === id ? 'active' : ''}`} onClick={() => setTab(id)}>{label}</button>
           ))}
         </div>
@@ -57,27 +57,34 @@ export default function SettingsPage() {
               <div className="form-row form-row-2">
                 <div className="form-group">
                   <label className="form-label">Default Lag Threshold (minutes)</label>
-                  <input className="form-control" type="number" min="1" value={settings.default_lag_threshold_minutes || 60} onChange={e => set('default_lag_threshold_minutes', e.target.value)} />
+                  <input className="form-control" type="number" min="1" value={settings.default_lag_threshold_minutes ?? ''} onChange={e => set('default_lag_threshold_minutes', e.target.value)} />
                   <div className="form-hint">For continuous replication: alert when lag exceeds this. Can be overridden per relationship.</div>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Default Snapshot Queue Threshold</label>
-                  <input className="form-control" type="number" min="1" value={settings.default_snapshot_queue_threshold || 3} onChange={e => set('default_snapshot_queue_threshold', e.target.value)} />
+                  <input className="form-control" type="number" min="1" value={settings.default_snapshot_queue_threshold ?? ''} onChange={e => set('default_snapshot_queue_threshold', e.target.value)} />
                   <div className="form-hint">For snapshot-policy replication: alert when queued snapshots exceed this. Can be overridden per relationship.</div>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Poll Interval (seconds)</label>
-                  <input className="form-control" type="number" min="30" value={settings.poll_interval_seconds || 60} onChange={e => set('poll_interval_seconds', e.target.value)} />
+                  <input className="form-control" type="number" min="30" value={settings.poll_interval_seconds ?? ''} onChange={e => set('poll_interval_seconds', e.target.value)} />
                   <div className="form-hint">Minimum 30 seconds. Restart applies new interval.</div>
                 </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">Alert Cooldown (minutes)</label>
-                <input className="form-control" type="number" min="1" value={settings.alert_cooldown_minutes || 30} onChange={e => set('alert_cooldown_minutes', e.target.value)} />
-                <div className="form-hint">Minimum time between repeat alerts for the same issue.</div>
+              <div className="form-row form-row-2">
+                <div className="form-group">
+                  <label className="form-label">Alert Cooldown (minutes)</label>
+                  <input className="form-control" type="number" min="1" value={settings.alert_cooldown_minutes ?? ''} onChange={e => set('alert_cooldown_minutes', e.target.value)} />
+                  <div className="form-hint">Minimum time between repeat alerts for the same issue.</div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Alert Retention (days)</label>
+                  <input className="form-control" type="number" min="0" value={settings.alert_retention_days ?? ''} onChange={e => set('alert_retention_days', e.target.value)} />
+                  <div className="form-hint">Alerts older than this are auto-deleted each poll cycle. Set to 0 to keep forever.</div>
+                </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button className="btn btn-primary" onClick={() => handleSave(['app_name','default_lag_threshold_minutes','default_snapshot_queue_threshold','poll_interval_seconds','alert_cooldown_minutes'])} disabled={saving}>
+                <button className="btn btn-primary" onClick={() => handleSave(['app_name','default_lag_threshold_minutes','default_snapshot_queue_threshold','poll_interval_seconds','alert_cooldown_minutes','alert_retention_days'])} disabled={saving}>
                   {saving ? 'Saving…' : 'Save General Settings'}
                 </button>
               </div>
@@ -86,6 +93,10 @@ export default function SettingsPage() {
         )}
 
         {tab === 'smtp' && <SmtpTab settings={settings} set={set} onSave={handleSave} saving={saving} toast={toast} />}
+
+        {tab === 'maintenance' && (
+          <MaintenanceTab toast={toast} settings={settings} />
+        )}
 
         {tab === 'alerts' && (
           <div className="card" style={{ maxWidth: 600 }}>
@@ -221,5 +232,98 @@ function TestAlertButton({ toast }) {
     <button className="btn btn-secondary btn-sm" onClick={handle} disabled={sending}>
       <Bell size={13} /> {sending ? 'Sending…' : 'Send Test Alert'}
     </button>
+  );
+}
+
+function MaintenanceTab({ toast, settings }) {
+  const [purging, setPurging] = useState(false);
+  const [customDays, setCustomDays] = useState('');
+  const [confirmAll, setConfirmAll] = useState(false);
+
+  const retentionDays = parseInt(settings.alert_retention_days) || 90;
+
+  const handlePurge = async (days) => {
+    setPurging(true);
+    try {
+      const result = await api.purgeAlerts(days);
+      toast(`Deleted ${result.deleted} alert${result.deleted !== 1 ? 's' : ''} older than ${days} days`, 'success');
+    } catch (e) { toast(e.message, 'error'); }
+    setPurging(false);
+  };
+
+  const handlePurgeAll = async () => {
+    setPurging(true);
+    try {
+      const result = await api.purgeAllAlerts();
+      toast(`Deleted all ${result.deleted} alert${result.deleted !== 1 ? 's' : ''}`, 'success');
+    } catch (e) { toast(e.message, 'error'); }
+    setConfirmAll(false);
+    setPurging(false);
+  };
+
+  return (
+    <div className="card" style={{ maxWidth: 600 }}>
+      <div className="card-header"><span className="card-title">Alert Log Cleanup</span></div>
+      <div className="card-body">
+        <p style={{ fontSize: 13, color: 'var(--text-1)', marginBottom: 20, lineHeight: 1.6 }}>
+          Manually remove alert log entries regardless of the automatic retention policy.
+          Automatic cleanup runs every poll cycle and removes alerts older than <strong style={{ color: 'var(--lychee-100)' }}>{retentionDays} days</strong> (set in General settings).
+          The buttons below are one-time operations and do not change that setting.
+        </p>
+
+        <div className="section-divider" />
+
+        <div style={{ marginBottom: 20 }}>
+          <div className="form-label" style={{ marginBottom: 10 }}>Purge by age</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {[7, 30, 90].map(d => (
+              <button key={d} className="btn btn-secondary btn-sm" disabled={purging} onClick={() => handlePurge(d)}>
+                Delete older than {d} days
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+            <input
+              className="form-control"
+              type="number"
+              min="1"
+              style={{ maxWidth: 100 }}
+              placeholder="Days"
+              value={customDays}
+              onChange={e => setCustomDays(e.target.value)}
+            />
+            <button
+              className="btn btn-secondary btn-sm"
+              disabled={purging || !customDays}
+              onClick={() => handlePurge(parseInt(customDays))}
+            >
+              Delete older than {customDays || '…'} days
+            </button>
+          </div>
+        </div>
+
+        <div className="section-divider" />
+
+        <div>
+          <div className="form-label" style={{ marginBottom: 6 }}>Purge all alerts</div>
+          <p style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 10 }}>
+            Permanently deletes the entire alert log. This cannot be undone.
+          </p>
+          {!confirmAll ? (
+            <button className="btn btn-danger btn-sm" onClick={() => setConfirmAll(true)}>
+              Delete All Alerts…
+            </button>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: 'var(--red)' }}>Are you sure? This cannot be undone.</span>
+              <button className="btn btn-danger btn-sm" disabled={purging} onClick={handlePurgeAll}>
+                {purging ? 'Deleting…' : 'Yes, Delete All'}
+              </button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setConfirmAll(false)}>Cancel</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

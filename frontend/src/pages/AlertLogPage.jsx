@@ -29,6 +29,14 @@ export default function AlertLogPage() {
     load();
   };
 
+  const handleAckAll = async () => {
+    const result = await api.acknowledgeAllAlerts();
+    toast(`${result.acknowledged} alert${result.acknowledged !== 1 ? 's' : ''} acknowledged`, 'success');
+    load();
+  };
+
+  const unacknowledgedCount = data.alerts.filter(a => !a.acknowledged).length;
+
   const totalPages = Math.ceil(data.total / limit);
 
   return (
@@ -38,7 +46,14 @@ export default function AlertLogPage() {
           <div className="page-title">Alert Log</div>
           <div className="page-subtitle">{data.total} total alerts across all relationships</div>
         </div>
-        <button className="btn btn-secondary btn-sm" onClick={load}><RefreshCw size={13} /> Refresh</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {isAdmin && unacknowledgedCount > 0 && (
+            <button className="btn btn-secondary btn-sm" onClick={handleAckAll}>
+              Acknowledge All ({unacknowledgedCount})
+            </button>
+          )}
+          <button className="btn btn-secondary btn-sm" onClick={load}><RefreshCw size={13} /> Refresh</button>
+        </div>
       </div>
 
       <div className="page-body">

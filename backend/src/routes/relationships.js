@@ -133,8 +133,8 @@ router.post('/import-discovered', adminOnly, (req, res) => {
   const db = getDb();
   const insert = db.prepare(`
     INSERT OR IGNORE INTO replication_relationships
-      (id, cluster_id, qumulo_id, display_name, source_path, target_host, target_path, direction, replication_mode, replication_enabled)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, cluster_id, qumulo_id, display_name, source_path, target_host, target_path, direction, replication_mode, replication_enabled, end_reason)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = db.transaction((rels) => {
@@ -143,6 +143,7 @@ router.post('/import-discovered', adminOnly, (req, res) => {
       const replEnabled = typeof r.replication_enabled === 'boolean'
         ? (r.replication_enabled ? 1 : 0)
         : null;
+      const endReason = (r.end_reason && r.end_reason !== '') ? r.end_reason : null;
       const result = insert.run(
         uuidv4(),
         cluster_id,
@@ -153,7 +154,8 @@ router.post('/import-discovered', adminOnly, (req, res) => {
         r.target_root_path || r.target_path || '',
         r.direction || 'source',
         r.replication_mode || null,
-        replEnabled
+        replEnabled,
+        endReason
       );
       if (result.changes > 0) count++;
     }
@@ -172,6 +174,17 @@ router.get('/:id/alerts', (req, res) => {
     ORDER BY sent_at DESC LIMIT 100
   `).all(req.params.id);
   res.json(alerts);
+});
+
+// POST /api/relationships/:id/alerts/acknowledge-all  (admin only)
+router.post('/:id/alerts/acknowledge-all', adminOnly, (req, res) => {
+  const db = getDb();
+  const result = db.prepare(`
+    UPDATE alert_log
+    SET acknowledged = 1, acknowledged_at = ?, acknowledged_by = ?
+    WHERE relationship_id = ? AND acknowledged = 0
+  `).run(new Date().toISOString(), req.user.username, req.params.id);
+  res.json({ acknowledged: result.changes });
 });
 
 // POST /api/relationships/:id/alerts/:alertId/acknowledge  (admin only)

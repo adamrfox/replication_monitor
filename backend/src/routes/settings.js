@@ -19,6 +19,7 @@ const PUBLIC_SETTINGS = [
 const ADMIN_SETTINGS = [
   ...PUBLIC_SETTINGS,
   'alert_cooldown_minutes',
+  'alert_retention_days',
   'smtp_host',
   'smtp_port',
   'smtp_secure',
@@ -105,6 +106,38 @@ router.get('/alerts', (req, res) => {
   `).all(limit, page * limit);
 
   res.json({ alerts, total, page, limit });
+});
+
+// POST /api/settings/alerts/acknowledge-all  (admin only)
+router.post('/alerts/acknowledge-all', adminOnly, (req, res) => {
+  const db = getDb();
+  const result = db.prepare(`
+    UPDATE alert_log
+    SET acknowledged = 1, acknowledged_at = ?, acknowledged_by = ?
+    WHERE acknowledged = 0
+  `).run(new Date().toISOString(), req.user.username);
+  res.json({ acknowledged: result.changes });
+});
+
+// POST /api/settings/alerts/purge  (admin only)
+// Purge alerts older than the retention period (or a custom number of days)
+router.post('/alerts/purge', adminOnly, (req, res) => {
+  const db = getDb();
+  const settings = Object.fromEntries(
+    db.prepare('SELECT key, value FROM settings').all().map(r => [r.key, r.value])
+  );
+  const days = parseInt(req.body.days) || parseInt(settings.alert_retention_days) || 90;
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const result = db.prepare('DELETE FROM alert_log WHERE sent_at < ?').run(cutoff);
+  res.json({ deleted: result.changes, older_than_days: days });
+});
+
+// POST /api/settings/alerts/purge-all  (admin only)
+// Delete ALL alert log entries
+router.post('/alerts/purge-all', adminOnly, (req, res) => {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM alert_log').run();
+  res.json({ deleted: result.changes });
 });
 
 // POST /api/settings/send-test-alert  (admin only)

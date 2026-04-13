@@ -55,6 +55,7 @@ export const api = {
   deleteRelationship: (id) => apiFetch(`/relationships/${id}`, { method: 'DELETE' }),
   importDiscovered: (data) => apiFetch('/relationships/import-discovered', { method: 'POST', body: data }),
   acknowledgeAlert: (relId, alertId) => apiFetch(`/relationships/${relId}/alerts/${alertId}/acknowledge`, { method: 'POST' }),
+  acknowledgeAllRelAlerts: (relId) => apiFetch(`/relationships/${relId}/alerts/acknowledge-all`, { method: 'POST' }),
 
   // Settings
   settings: () => apiFetch('/settings'),
@@ -62,4 +63,7 @@ export const api = {
   testSmtp: (data) => apiFetch('/settings/test-smtp', { method: 'POST', body: data }),
   sendTestAlert: () => apiFetch('/settings/send-test-alert', { method: 'POST' }),
   alertLog: (params = {}) => apiFetch(`/settings/alerts?${new URLSearchParams(params)}`),
+  acknowledgeAllAlerts: () => apiFetch('/settings/alerts/acknowledge-all', { method: 'POST' }),
+  purgeAlerts: (days) => apiFetch('/settings/alerts/purge', { method: 'POST', body: { days } }),
+  purgeAllAlerts: () => apiFetch('/settings/alerts/purge-all', { method: 'POST' }),
 };

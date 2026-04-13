@@ -138,6 +138,16 @@ async function pollAll() {
   const defaultSnapshotQueueThreshold = parseInt(settings.default_snapshot_queue_threshold) || 3;
   const cooldownMinutes = parseInt(settings.alert_cooldown_minutes) || 30;
 
+  // Clean up old alert log entries based on retention setting
+  const retentionDays = parseInt(settings.alert_retention_days) || 90;
+  if (retentionDays > 0) {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    const deleted = db.prepare('DELETE FROM alert_log WHERE sent_at < ?').run(cutoff);
+    if (deleted.changes > 0) {
+      console.log(`[Poller] Pruned ${deleted.changes} alert log entries older than ${retentionDays} days`);
+    }
+  }
+
   const clusters = db.prepare('SELECT * FROM clusters').all();
 
   for (const cluster of clusters) {
