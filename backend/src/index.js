@@ -8,6 +8,7 @@ const authRoutes = require('./routes/auth');
 const clusterRoutes = require('./routes/clusters');
 const relationshipRoutes = require('./routes/relationships');
 const settingsRoutes = require('./routes/settings');
+const recipientGroupRoutes = require('./routes/recipientGroups');
 const { startPoller } = require('./services/pollerService');
 
 const app = express();
@@ -33,6 +34,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/clusters', clusterRoutes);
 app.use('/api/relationships', relationshipRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/recipient-groups', recipientGroupRoutes);
 
 // Health check
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'qumulo-monitor-api', ts: new Date().toISOString() }));

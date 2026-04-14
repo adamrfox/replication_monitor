@@ -66,4 +66,10 @@ export const api = {
   acknowledgeAllAlerts: () => apiFetch('/settings/alerts/acknowledge-all', { method: 'POST' }),
   purgeAlerts: (days) => apiFetch('/settings/alerts/purge', { method: 'POST', body: { days } }),
   purgeAllAlerts: () => apiFetch('/settings/alerts/purge-all', { method: 'POST' }),
+
+  // Recipient groups
+  recipientGroups: () => apiFetch('/recipient-groups'),
+  createRecipientGroup: (data) => apiFetch('/recipient-groups', { method: 'POST', body: data }),
+  updateRecipientGroup: (id, data) => apiFetch(`/recipient-groups/${id}`, { method: 'PUT', body: data }),
+  deleteRecipientGroup: (id) => apiFetch(`/recipient-groups/${id}`, { method: 'DELETE' }),
 };

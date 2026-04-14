@@ -60,7 +60,17 @@ function initSchema() {
       snapshot_queue_threshold INTEGER,      -- for snapshot-mode rels: alert if queued > this (NULL = use default)
       replication_enabled INTEGER,          -- 0/1 as reported by Qumulo API (NULL = unknown)
       end_reason TEXT,                       -- populated when relationship has been ended on the cluster
+      alert_recipients TEXT,                 -- comma-separated emails/group names (NULL = use default)
       enabled INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS recipient_groups (
+      id TEXT PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      description TEXT,
+      addresses TEXT NOT NULL,          -- comma-separated email addresses
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -111,6 +121,9 @@ function initSchema() {
   }
   if (!cols.includes('end_reason')) {
     db.exec("ALTER TABLE replication_relationships ADD COLUMN end_reason TEXT");
+  }
+  if (!cols.includes('alert_recipients')) {
+    db.exec("ALTER TABLE replication_relationships ADD COLUMN alert_recipients TEXT");
   }
 
   // Insert default settings if not present

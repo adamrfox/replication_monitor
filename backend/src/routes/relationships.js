@@ -88,7 +88,7 @@ router.put('/:id', adminOnly, (req, res) => {
   const rel = db.prepare('SELECT * FROM replication_relationships WHERE id = ?').get(req.params.id);
   if (!rel) return res.status(404).json({ error: 'Relationship not found' });
 
-  const { display_name, source_path, target_host, target_path, lag_threshold_minutes, snapshot_queue_threshold, enabled } = req.body;
+  const { display_name, source_path, target_host, target_path, lag_threshold_minutes, snapshot_queue_threshold, alert_recipients, enabled } = req.body;
 
   db.prepare(`
     UPDATE replication_relationships SET
@@ -98,6 +98,7 @@ router.put('/:id', adminOnly, (req, res) => {
       target_path = COALESCE(?, target_path),
       lag_threshold_minutes = ?,
       snapshot_queue_threshold = ?,
+      alert_recipients = ?,
       enabled = COALESCE(?, enabled),
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
@@ -105,6 +106,7 @@ router.put('/:id', adminOnly, (req, res) => {
     display_name, source_path, target_host, target_path,
     lag_threshold_minutes !== undefined ? lag_threshold_minutes : rel.lag_threshold_minutes,
     snapshot_queue_threshold !== undefined ? snapshot_queue_threshold : rel.snapshot_queue_threshold,
+    alert_recipients !== undefined ? (alert_recipients || null) : rel.alert_recipients,
     enabled !== undefined ? (enabled ? 1 : 0) : null,
     req.params.id
   );

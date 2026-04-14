@@ -10,10 +10,11 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState('general');
+  const [groups, setGroups] = useState([]);
 
   const load = useCallback(async () => {
-    const data = await api.settings();
-    setSettings(data); setLoading(false);
+    const [data, grps] = await Promise.all([api.settings(), api.recipientGroups().catch(() => [])]);
+    setSettings(data); setGroups(grps); setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -41,7 +42,7 @@ export default function SettingsPage() {
       </div>
       <div className="page-body">
         <div className="tabs">
-          {[['general', 'General'], ['smtp', 'Email / SMTP'], ['alerts', 'Alert Recipients'], ['maintenance', 'Maintenance']].map(([id, label]) => (
+          {[['general', 'General'], ['smtp', 'Email / SMTP'], ['alerts', 'Alert Recipients'], ['recipients', 'Recipient Groups'], ['maintenance', 'Maintenance']].map(([id, label]) => (
             <button key={id} className={`tab-btn ${tab === id ? 'active' : ''}`} onClick={() => setTab(id)}>{label}</button>
           ))}
         </div>
@@ -94,6 +95,10 @@ export default function SettingsPage() {
 
         {tab === 'smtp' && <SmtpTab settings={settings} set={set} onSave={handleSave} saving={saving} toast={toast} />}
 
+        {tab === 'recipients' && (
+          <RecipientGroupsTab toast={toast} />
+        )}
+
         {tab === 'maintenance' && (
           <MaintenanceTab toast={toast} settings={settings} />
         )}
@@ -111,7 +116,23 @@ export default function SettingsPage() {
                   onChange={e => set('alert_recipients', e.target.value)}
                   placeholder="ops@example.com, alerts@example.com"
                 />
-                <div className="form-hint">Comma-separated list of addresses to receive all alerts.</div>
+                <div className="form-hint">
+                  Comma-separated list of email addresses and/or group names to receive all alerts by default.
+                  {groups.length > 0 && (
+                    <span> Available groups: {groups.map((g, i) => (
+                      <span key={g.id}>
+                        <span
+                          style={{ color: 'var(--agave-500)', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11 }}
+                          onClick={() => {
+                            const current = (settings.alert_recipients || '').trim();
+                            set('alert_recipients', current ? current + ', ' + g.name : g.name);
+                          }}
+                          title={g.description || g.addresses}
+                        >{g.name}</span>{i < groups.length - 1 ? ', ' : ''}
+                      </span>
+                    ))}</span>
+                  )}
+                </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <TestAlertButton toast={toast} />
@@ -322,6 +343,158 @@ function MaintenanceTab({ toast, settings }) {
               <button className="btn btn-secondary btn-sm" onClick={() => setConfirmAll(false)}>Cancel</button>
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecipientGroupsTab({ toast }) {
+  const [groups, setGroups] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editGroup, setEditGroup] = useState(null);  // null=closed, {}=new, {id,...}=edit
+  const [deleteGroup, setDeleteGroup] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    try { setGroups(await api.recipientGroups()); } catch (e) { toast(e.message, 'error'); }
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleDelete = async () => {
+    try {
+      await api.deleteRecipientGroup(deleteGroup.id);
+      toast('Group deleted', 'success');
+      setDeleteGroup(null); load();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  return (
+    <div style={{ maxWidth: 700 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <p style={{ fontSize: 13, color: 'var(--text-1)', lineHeight: 1.6 }}>
+            Create named groups of email addresses. Use a group name anywhere an email address is accepted — in Alert Recipients or on individual relationships.
+          </p>
+        </div>
+        <button className="btn btn-primary btn-sm" style={{ marginLeft: 16, flexShrink: 0 }} onClick={() => setEditGroup({})}>
+          + New Group
+        </button>
+      </div>
+
+      <div className="card">
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner /></div>
+        ) : groups.length === 0 ? (
+          <div className="empty-state" style={{ padding: 40 }}>
+            <p>No recipient groups yet. Create one to use group names in alert settings.</p>
+          </div>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr><th>Group Name</th><th>Description</th><th>Addresses</th><th></th></tr>
+            </thead>
+            <tbody>
+              {groups.map(g => (
+                <tr key={g.id}>
+                  <td style={{ fontWeight: 600, color: 'var(--lychee-100)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>{g.name}</td>
+                  <td className="text-muted text-sm">{g.description || '—'}</td>
+                  <td className="text-sm" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={g.addresses}>{g.addresses}</td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn btn-ghost btn-icon btn-sm" title="Edit" onClick={() => setEditGroup(g)}>✎</button>
+                      <button className="btn btn-ghost btn-icon btn-sm" title="Delete" onClick={() => setDeleteGroup(g)}>✕</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {editGroup !== null && (
+        <GroupFormModal
+          group={editGroup.id ? editGroup : null}
+          onClose={() => setEditGroup(null)}
+          onSaved={() => { setEditGroup(null); load(); }}
+          toast={toast}
+        />
+      )}
+
+      {deleteGroup && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setDeleteGroup(null)}>
+          <div className="modal" style={{ maxWidth: 420 }}>
+            <div className="modal-header"><span className="modal-title">Delete Group</span></div>
+            <div className="modal-body">
+              <p style={{ color: 'var(--text-1)', lineHeight: 1.6 }}>
+                Delete group <strong style={{ color: 'var(--lychee-100)', fontFamily: 'var(--font-mono)' }}>{deleteGroup.name}</strong>?
+                Any alert settings referencing this group name will need to be updated manually.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setDeleteGroup(null)}>Cancel</button>
+              <button className="btn btn-danger" onClick={handleDelete}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GroupFormModal({ group, onClose, onSaved, toast }) {
+  const isEdit = !!group;
+  const [form, setForm] = useState({
+    name: group?.name || '',
+    description: group?.description || '',
+    addresses: group?.addresses || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSave = async () => {
+    if (!form.name.trim()) { toast('Group name required', 'error'); return; }
+    if (!form.addresses.trim()) { toast('At least one address required', 'error'); return; }
+    setSaving(true);
+    try {
+      isEdit
+        ? await api.updateRecipientGroup(group.id, form)
+        : await api.createRecipientGroup(form);
+      toast(isEdit ? 'Group updated' : 'Group created', 'success');
+      onSaved();
+    } catch (e) { toast(e.message, 'error'); }
+    setSaving(false);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-header">
+          <span className="modal-title">{isEdit ? `Edit Group: ${group.name}` : 'New Recipient Group'}</span>
+          <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div className="form-group">
+            <label className="form-label">Group Name</label>
+            <input className="form-control form-control-mono" value={form.name} onChange={e => set('name', e.target.value)} placeholder="ops-team" disabled={isEdit} />
+            <div className="form-hint">Used in place of email addresses. No spaces — use hyphens or underscores.</div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Description (optional)</label>
+            <input className="form-control" value={form.description} onChange={e => set('description', e.target.value)} placeholder="Operations team on-call rotation" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Email Addresses</label>
+            <textarea className="form-control" rows={4} value={form.addresses} onChange={e => set('addresses', e.target.value)} placeholder="alice@example.com, bob@example.com, carol@example.com" />
+            <div className="form-hint">Comma-separated list of email addresses in this group.</div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
         </div>
       </div>
     </div>

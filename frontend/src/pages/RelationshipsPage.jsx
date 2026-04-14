@@ -166,14 +166,22 @@ export function RelationshipsPage() {
 
 function EditRelModal({ rel, onClose, onSaved }) {
   const { toast } = useToast();
+  const isSnapshot = (rel.replication_mode || '').includes('SNAPSHOT');
   const [form, setForm] = useState({
     display_name: rel.display_name || '',
     lag_threshold_minutes: rel.lag_threshold_minutes ?? '',
+    snapshot_queue_threshold: rel.snapshot_queue_threshold ?? '',
     source_path: rel.source_path || '',
     target_host: rel.target_host || '',
     target_path: rel.target_path || '',
+    alert_recipients: rel.alert_recipients || '',
   });
   const [saving, setSaving] = useState(false);
+  const [groups, setGroups] = useState([]);
+
+  useEffect(() => {
+    api.recipientGroups().then(setGroups).catch(() => {});
+  }, []);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -183,6 +191,8 @@ function EditRelModal({ rel, onClose, onSaved }) {
       await api.updateRelationship(rel.id, {
         ...form,
         lag_threshold_minutes: form.lag_threshold_minutes === '' ? null : parseInt(form.lag_threshold_minutes),
+        snapshot_queue_threshold: form.snapshot_queue_threshold === '' ? null : parseInt(form.snapshot_queue_threshold),
+        alert_recipients: form.alert_recipients.trim() || null,
       });
       toast('Saved', 'success'); onSaved();
     } catch (e) { toast(e.message, 'error'); }
@@ -198,11 +208,19 @@ function EditRelModal({ rel, onClose, onSaved }) {
         <label className="form-label">Display Name</label>
         <input className="form-control" value={form.display_name} onChange={e => set('display_name', e.target.value)} />
       </div>
-      <div className="form-group">
-        <label className="form-label">Lag Threshold (minutes)</label>
-        <input className="form-control" type="number" min="1" value={form.lag_threshold_minutes} onChange={e => set('lag_threshold_minutes', e.target.value)} placeholder="Use default" />
-        <div className="form-hint">Leave blank to use the system default threshold.</div>
-      </div>
+      {isSnapshot ? (
+        <div className="form-group">
+          <label className="form-label">Snapshot Queue Threshold</label>
+          <input className="form-control" type="number" min="1" value={form.snapshot_queue_threshold} onChange={e => set('snapshot_queue_threshold', e.target.value)} placeholder="Use default (3)" />
+          <div className="form-hint">Alert when queued snapshot count exceeds this. Leave blank to use the system default.</div>
+        </div>
+      ) : (
+        <div className="form-group">
+          <label className="form-label">Lag Threshold (minutes)</label>
+          <input className="form-control" type="number" min="1" value={form.lag_threshold_minutes} onChange={e => set('lag_threshold_minutes', e.target.value)} placeholder="Use default" />
+          <div className="form-hint">Alert when replication lags beyond this. Leave blank to use the system default.</div>
+        </div>
+      )}
       <div className="form-row form-row-2">
         <div className="form-group">
           <label className="form-label">Source Path</label>
@@ -213,6 +231,32 @@ function EditRelModal({ rel, onClose, onSaved }) {
           <label className="form-label">Target Host</label>
           <input className="form-control form-control-mono" value={form.target_host} readOnly disabled style={{ opacity: 0.6, cursor: 'not-allowed' }} />
           <div className="form-hint">Set by Qumulo — not editable.</div>
+        </div>
+      </div>
+      <div className="form-group">
+        <label className="form-label">Alert Recipients (optional)</label>
+        <input
+          className="form-control"
+          value={form.alert_recipients}
+          onChange={e => set('alert_recipients', e.target.value)}
+          placeholder="Leave blank to use default recipients"
+        />
+        <div className="form-hint">
+          Comma-separated emails or group names, added alongside the default recipients.
+          {groups.length > 0 && (
+            <span> Available groups: {groups.map((g, i) => (
+              <span key={g.id}>
+                <span
+                  style={{ color: 'var(--agave-500)', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11 }}
+                  onClick={() => {
+                    const current = form.alert_recipients.trim();
+                    set('alert_recipients', current ? current + ', ' + g.name : g.name);
+                  }}
+                  title={g.description || g.addresses}
+                >{g.name}</span>{i < groups.length - 1 ? ', ' : ''}
+              </span>
+            ))}</span>
+          )}
         </div>
       </div>
     </Modal>

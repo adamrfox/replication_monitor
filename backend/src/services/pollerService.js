@@ -234,7 +234,8 @@ async function pollAll() {
                <p><strong>Target:</strong> ${statusData.target_address || rel.target_host || ''}:${statusData.target_root_path || rel.target_path || ''}</p>
                <p><strong>Error:</strong> ${msg}</p>
                <p><em>${new Date().toISOString()}</em></p>`,
-              `Replication Error\nCluster: ${cluster.name}\nRelationship: ${name}\nError: ${msg}`
+              `Replication Error\nCluster: ${cluster.name}\nRelationship: ${name}\nError: ${msg}`,
+              rel.alert_recipients || null
             );
             logAlert(db, { relationship_id: rel.id, cluster_id: cluster.id, alert_type: 'error', message: msg });
           }
@@ -253,7 +254,8 @@ async function pollAll() {
                  <p><strong>Threshold:</strong> ${snapshotQueueThreshold}</p>
                  <p><strong>Source:</strong> ${statusData.source_root_path || rel.source_path || 'N/A'}</p>
                  <p><em>${new Date().toISOString()}</em></p>`,
-                `Replication Queue Alert\nCluster: ${cluster.name}\nRelationship: ${name}\nQueued: ${queuedSnapshots} (threshold: ${snapshotQueueThreshold})`
+                `Replication Queue Alert\nCluster: ${cluster.name}\nRelationship: ${name}\nQueued: ${queuedSnapshots} (threshold: ${snapshotQueueThreshold})`,
+              rel.alert_recipients || null
               );
               logAlert(db, { relationship_id: rel.id, cluster_id: cluster.id, alert_type: 'lag', message: `${queuedSnapshots} snapshots queued (threshold: ${snapshotQueueThreshold})` });
             }
@@ -272,7 +274,8 @@ async function pollAll() {
                  <p><strong>Threshold:</strong> ${lagThresholdMin} minutes</p>
                  <p><strong>Last Replicated:</strong> ${statusData.recovery_point || 'Unknown'}</p>
                  <p><em>${new Date().toISOString()}</em></p>`,
-                `Replication Lag\nCluster: ${cluster.name}\nRelationship: ${name}\nLag: ${lagMin}m (threshold: ${lagThresholdMin}m)`
+                `Replication Lag\nCluster: ${cluster.name}\nRelationship: ${name}\nLag: ${lagMin}m (threshold: ${lagThresholdMin}m)`,
+              rel.alert_recipients || null
               );
               logAlert(db, { relationship_id: rel.id, cluster_id: cluster.id, alert_type: 'lag', message: `${lagMin} minutes behind (threshold: ${lagThresholdMin} min)` });
             }

@@ -10,6 +10,33 @@ function getSettings() {
   return Object.fromEntries(rows.map((r) => [r.key, r.value]));
 }
 
+/**
+ * Resolve a comma-separated string of email addresses and/or group names
+ * into a flat deduplicated array of email addresses.
+ */
+function resolveRecipients(recipientStr) {
+  if (!recipientStr) return [];
+  const db = getDb();
+  const groups = Object.fromEntries(
+    db.prepare('SELECT name, addresses FROM recipient_groups').all().map(g => [g.name.toLowerCase(), g.addresses])
+  );
+
+  const resolved = new Set();
+  for (const entry of recipientStr.split(',').map(e => e.trim()).filter(Boolean)) {
+    const lower = entry.toLowerCase();
+    if (groups[lower]) {
+      // It's a group name — expand it
+      for (const addr of groups[lower].split(',').map(e => e.trim()).filter(Boolean)) {
+        resolved.add(addr);
+      }
+    } else {
+      // Treat as a raw email address
+      resolved.add(entry);
+    }
+  }
+  return [...resolved];
+}
+
 function createTransporter(settings) {
   return nodemailer.createTransport({
     host: settings.smtp_host,
@@ -22,26 +49,39 @@ function createTransporter(settings) {
   });
 }
 
-async function sendAlertEmail(subject, html, text) {
+/**
+ * Send an alert email.
+ * @param {string} subject
+ * @param {string} html
+ * @param {string} text
+ * @param {string|null} extraRecipients - comma-separated addresses/group names to add
+ *                                        alongside the default alert_recipients
+ */
+async function sendAlertEmail(subject, html, text, extraRecipients = null) {
   const settings = getSettings();
-  if (!settings.smtp_host || !settings.alert_recipients) {
+  if (!settings.smtp_host) {
     console.log('[Alerts] SMTP not configured, skipping email.');
     return false;
   }
 
-  const recipients = settings.alert_recipients
-    .split(',')
-    .map((e) => e.trim())
-    .filter(Boolean);
+  // Merge default recipients with any per-relationship extras
+  const defaultRecipients = resolveRecipients(settings.alert_recipients);
+  const extraResolved = extraRecipients ? resolveRecipients(extraRecipients) : [];
 
-  if (recipients.length === 0) return false;
+  // Deduplicate — per-relationship recipients are additive to the defaults
+  const all = [...new Set([...defaultRecipients, ...extraResolved])];
+
+  if (all.length === 0) {
+    console.log('[Alerts] No recipients configured, skipping email.');
+    return false;
+  }
 
   const transporter = createTransporter(settings);
   try {
     await transporter.sendMail({
       from: settings.smtp_from || settings.smtp_user,
-      to: recipients.join(', '),
-      subject: `[${settings.app_name}] ${subject}`,
+      to: all.join(', '),
+      subject: `[${settings.app_name || 'Qumulo Replication Monitor'}] ${subject}`,
       html,
       text,
     });
@@ -76,9 +116,6 @@ function logAlert(db, { relationship_id, cluster_id, alert_type, message }) {
   `).run(uuidv4(), relationship_id, cluster_id, alert_type, message, new Date().toISOString());
 }
 
-/**
- * Check cooldown: returns true if we should send this alert.
- */
 function shouldSendAlert(db, relationship_id, alert_type, cooldownMinutes) {
   const cutoff = new Date(Date.now() - cooldownMinutes * 60 * 1000).toISOString();
   const recent = db.prepare(`
@@ -89,4 +126,4 @@ function shouldSendAlert(db, relationship_id, alert_type, cooldownMinutes) {
   return !recent;
 }
 
-module.exports = { sendAlertEmail, testSmtpConfig, logAlert, shouldSendAlert };
+module.exports = { sendAlertEmail, testSmtpConfig, logAlert, shouldSendAlert, resolveRecipients };
