@@ -4,7 +4,7 @@ import { GitCompare, ArrowLeft, Edit2, Trash2, ToggleLeft, ToggleRight, Clock, R
 import { api } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
-import { StatusBadge, LagDisplay, SnapshotQueueDisplay, RelativeTime, Spinner, EmptyState, Modal, ConfirmModal, formatDate } from '../components/shared';
+import { StatusBadge, LagDisplay, SnapshotQueueDisplay, JobProgressDisplay, RelativeTime, Spinner, EmptyState, Modal, ConfirmModal, formatDate } from '../components/shared';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // ─── List Page ──────────────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ export function RelationshipsPage() {
               <tbody>
                 {filtered.map(rel => {
                   const lagThresh = rel.lag_threshold_minutes ?? threshold;
-                  const isSnapshot = (rel.replication_mode || '').includes('SNAPSHOT');
+                  const isSnapshot = rel.replication_mode === 'REPLICATION_SNAPSHOT_POLICY';
                   const clusterDisabled = rel.replication_enabled == 0 && rel.replication_enabled !== null;
                   // For continuous rels, check lag even if disabled — old recovery_point matters
                   const lagExceedsThreshold = !isSnapshot && rel.latest_lag_seconds > lagThresh * 60;
@@ -90,6 +90,7 @@ export function RelationshipsPage() {
                     : rel.latest_status === 'error' ? 'error'
                     : !rel.latest_status ? 'unknown'
                     : (rel.latest_status === 'disabled' || clusterDisabled) ? 'disabled'
+                    : rel.latest_status === 'running' ? 'running'
                     : lagExceedsThreshold ? 'warning'
                     : 'ok';
                   return (
@@ -166,7 +167,7 @@ export function RelationshipsPage() {
 
 function EditRelModal({ rel, onClose, onSaved }) {
   const { toast } = useToast();
-  const isSnapshot = (rel.replication_mode || '').includes('SNAPSHOT');
+  const isSnapshot = rel.replication_mode === 'REPLICATION_SNAPSHOT_POLICY';
   const [form, setForm] = useState({
     display_name: rel.display_name || '',
     lag_threshold_minutes: rel.lag_threshold_minutes ?? '',
@@ -287,6 +288,10 @@ export function RelationshipDetailPage() {
 
   const threshold = data.lag_threshold_minutes ?? parseInt(settings.default_lag_threshold_minutes) ?? 60;
   const latest = data.history?.[0];
+  let activeJobStatus = null;
+  if (latest?.status === 'running') {
+    try { activeJobStatus = JSON.parse(latest.raw_data || '{}').replication_job_status || null; } catch {}
+  }
   const status = latest?.status === 'error' ? 'error' : !latest ? 'unknown' :
     (latest.lag_seconds > threshold * 60 ? 'warning' : latest.status);
 
@@ -381,6 +386,21 @@ export function RelationshipDetailPage() {
               </div>
             )}
 
+            {activeJobStatus && (
+              <div className="card" style={{ gridColumn: '1 / -1', borderColor: 'var(--agave-700)' }}>
+                <div className="card-header" style={{ borderColor: 'var(--agave-700)' }}>
+                  <span className="card-title" style={{ color: 'var(--agave-400)' }}>
+                    <span className="status-dot running" style={{ marginRight: 6 }} />
+                    Active Transfer in Progress
+                  </span>
+                  <span className="text-muted text-sm">as of last poll</span>
+                </div>
+                <div className="card-body">
+                  <JobProgressDisplay jobStatus={activeJobStatus} />
+                </div>
+              </div>
+            )}
+
             <div className="card">
               <div className="card-header"><span className="card-title">Latest Status</span></div>
               <div className="card-body">
@@ -429,16 +449,27 @@ export function RelationshipDetailPage() {
         {tab === 'history' && (
           <div className="card">
             <table className="data-table">
-              <thead><tr><th>Time</th><th>Status</th><th>Lag</th><th>Error</th></tr></thead>
+              <thead><tr><th>Time</th><th>Status</th><th>Lag / Progress</th><th>Error</th></tr></thead>
               <tbody>
-                {(data.history || []).map((h, i) => (
+                {(data.history || []).map((h, i) => {
+                  let jobStatus = null;
+                  if (h.status === 'running') {
+                    try { jobStatus = JSON.parse(h.raw_data || '{}').replication_job_status || null; } catch {}
+                  }
+                  return (
                   <tr key={i}>
                     <td className="mono text-sm">{formatDate(h.polled_at)}</td>
                     <td><StatusBadge status={h.status} /></td>
-                    <td><LagDisplay lagSeconds={h.lag_seconds} thresholdMinutes={threshold} /></td>
+                    <td>
+                      {jobStatus
+                        ? <JobProgressDisplay jobStatus={jobStatus} compact />
+                        : <LagDisplay lagSeconds={h.lag_seconds} thresholdMinutes={threshold} />
+                      }
+                    </td>
                     <td style={{ color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{h.error_message || '—'}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

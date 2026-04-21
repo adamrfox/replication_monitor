@@ -69,7 +69,7 @@ export default function SettingsPage() {
                 <div className="form-group">
                   <label className="form-label">Poll Interval (seconds)</label>
                   <input className="form-control" type="number" min="30" value={settings.poll_interval_seconds ?? ''} onChange={e => set('poll_interval_seconds', e.target.value)} />
-                  <div className="form-hint">Minimum 30 seconds. Restart applies new interval.</div>
+                  <div className="form-hint">Minimum 5 seconds. Changes apply immediately on save.</div>
                 </div>
               </div>
               <div className="form-row form-row-2">

@@ -67,16 +67,26 @@ function extractStatus(data) {
   if (data.replication_enabled === false) return 'disabled';
   if (jobState.includes('disabled') || state.includes('disabled')) return 'disabled';
 
+  // Disconnected — cannot reach target cluster
+  if (state === 'disconnected') return 'error';
+
+  // Awaiting authorization
+  if (state === 'awaiting_authorization') return 'unknown';
+
   // Error — job faulted or cannot reach target
   if (jobState.includes('error') || state.includes('error')) return 'error';
 
-  // OK — established and running or idle (we don't distinguish running vs idle)
+  // Active transfer — job_state is exactly REPLICATION_RUNNING
+  if (jobState === 'replication_running') return 'running';
+
+  // OK — established and idle
   if (state === 'established') return 'ok';
-  if (jobState.includes('run') || jobState.includes('queue') || jobState.includes('not_running')) return 'ok';
+  if (jobState === 'replication_not_running' || jobState === 'replication_queued') return 'ok';
 
   // Generic fallbacks
   const combined = jobState + ' ' + state;
   if (combined.includes('fail') || combined.includes('error')) return 'error';
+  if (combined.includes('disconnect')) return 'error';
   if (combined.includes('ok') || combined.includes('success') || combined.includes('complete') || combined.includes('established')) return 'ok';
 
   return 'unknown';
@@ -193,7 +203,8 @@ async function pollAll() {
         // Backfill paths from status if not already stored
         updateRelationshipPaths(db, rel.id, statusData);
 
-        const isSnapshot = (statusData.replication_mode || rel.replication_mode || '').includes('SNAPSHOT');
+        const replMode = statusData.replication_mode || rel.replication_mode || '';
+        const isSnapshot = replMode === 'REPLICATION_SNAPSHOT_POLICY'; // hybrid uses continuous lag logic
         const isDisabled = statusData.replication_enabled === false;
         const lagSeconds = isSnapshot && !isDisabled
           // Active snapshot rel: store queue depth so UI can show count vs threshold
@@ -293,7 +304,7 @@ async function pollAll() {
 
 function startPoller() {
   const settings = getSettings();
-  const intervalSeconds = Math.max(30, parseInt(settings.poll_interval_seconds) || 60);
+  const intervalSeconds = Math.max(5, parseInt(settings.poll_interval_seconds) || 60);
 
   let cronExpr;
   if (intervalSeconds < 60) {

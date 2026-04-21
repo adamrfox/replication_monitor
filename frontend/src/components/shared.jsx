@@ -18,6 +18,7 @@ export function Modal({ title, onClose, children, footer, size = '' }) {
 export function StatusBadge({ status }) {
   const map = {
     ok:       { cls: 'badge-ok',      dot: 'ok',      label: 'OK' },
+    running:  { cls: 'badge-running', dot: 'running', label: 'RUNNING' },
     warning:  { cls: 'badge-warning', dot: 'warning', label: 'LAGGING' },
     error:    { cls: 'badge-error',   dot: 'error',   label: 'ERROR' },
     disabled: { cls: 'badge-warning', dot: 'unknown', label: 'DISABLED' },
@@ -106,6 +107,97 @@ export function SnapshotQueueDisplay({ queueCount, threshold }) {
       </span>
       <div className="lag-bar">
         <div className="lag-bar-fill" style={{ width: `${pct}%`, background: color }} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Format bytes into human-readable string.
+ */
+function fmtBytes(val) {
+  const n = parseInt(val);
+  if (isNaN(n)) return '—';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+  return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+
+/**
+ * Format throughput bytes/sec into human-readable string.
+ */
+function fmtThroughput(val) {
+  const n = parseInt(val);
+  if (isNaN(n)) return '—';
+  if (n < 1024) return n + ' B/s';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB/s';
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB/s';
+  return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB/s';
+}
+
+/**
+ * Display active replication job progress.
+ * jobStatus = replication_job_status object from Qumulo API.
+ * compact = show minimal one-line version for table/card.
+ */
+export function JobProgressDisplay({ jobStatus, compact = false }) {
+  if (!jobStatus) return null;
+  const pct = (jobStatus.percent_complete || 0) * 100;
+  const color = pct >= 100 ? 'var(--green)' : 'var(--agave-400)';
+
+  if (compact) {
+    return (
+      <div className="lag-bar-wrap" style={{ minWidth: 140 }}>
+        <span className="mono text-sm" style={{ color, minWidth: 42 }}>{pct.toFixed(1)}%</span>
+        <div className="lag-bar">
+          <div className="lag-bar-fill" style={{ width: `${Math.min(100, pct)}%`, background: color }} />
+        </div>
+        <span className="text-sm text-muted" style={{ whiteSpace: 'nowrap' }}>
+          {fmtThroughput(jobStatus.throughput_current)}
+        </span>
+      </div>
+    );
+  }
+
+  const estSecs = parseInt(jobStatus.estimated_seconds_remaining);
+  const estLabel = !isNaN(estSecs)
+    ? estSecs < 60 ? `${estSecs}s remaining`
+    : estSecs < 3600 ? `${Math.round(estSecs / 60)}m remaining`
+    : `${Math.round(estSecs / 3600)}h remaining`
+    : null;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Progress bar */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12 }}>
+          <span style={{ color, fontWeight: 600 }}>{pct.toFixed(1)}% complete</span>
+          {estLabel && <span className="text-muted">{estLabel}</span>}
+        </div>
+        <div className="lag-bar" style={{ height: 6 }}>
+          <div className="lag-bar-fill" style={{ width: `${Math.min(100, pct)}%`, background: color }} />
+        </div>
+      </div>
+
+      {/* Stats grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 20px', fontSize: 12 }}>
+        {[
+          ['Transferred', fmtBytes(jobStatus.bytes_transferred)],
+          ['Remaining', fmtBytes(jobStatus.bytes_remaining)],
+          ['Total', fmtBytes(jobStatus.bytes_total)],
+          ['Deleted', fmtBytes(jobStatus.bytes_deleted)],
+          ['Files Transferred', jobStatus.files_transferred],
+          ['Files Remaining', jobStatus.files_remaining],
+          ['Files Total', jobStatus.files_total],
+          ['Throughput (now)', fmtThroughput(jobStatus.throughput_current)],
+          ['Throughput (avg)', fmtThroughput(jobStatus.throughput_overall)],
+        ].map(([label, val]) => val && val !== '—' && (
+          <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <span className="text-muted">{label}</span>
+            <span className="mono" style={{ color: 'var(--lychee-100)' }}>{val}</span>
+          </div>
+        ))}
       </div>
     </div>
   );

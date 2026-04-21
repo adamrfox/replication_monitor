@@ -17,6 +17,7 @@ router.get('/', (req, res) => {
            p.status as latest_status,
            p.lag_seconds as latest_lag_seconds,
            p.error_message as latest_error,
+           p.raw_data as latest_raw_data,
            p.polled_at as last_polled_at
     FROM replication_relationships r
     JOIN clusters c ON c.id = r.cluster_id
@@ -43,7 +44,7 @@ router.get('/:id', (req, res) => {
   if (!rel) return res.status(404).json({ error: 'Relationship not found' });
 
   const history = db.prepare(`
-    SELECT status, lag_seconds, error_message, polled_at
+    SELECT status, lag_seconds, error_message, raw_data, polled_at
     FROM poll_results WHERE relationship_id = ?
     ORDER BY polled_at DESC LIMIT 100
   `).all(req.params.id);

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { RefreshCw, AlertTriangle, CheckCircle, Clock, Activity, ArrowRight } from 'lucide-react';
 import { api } from '../api/client';
-import { StatusBadge, LagDisplay, SnapshotQueueDisplay, RelativeTime, Spinner, EmptyState } from '../components/shared';
+import { StatusBadge, LagDisplay, SnapshotQueueDisplay, JobProgressDisplay, RelativeTime, Spinner, EmptyState } from '../components/shared';
 
 function deriveCardStatus(rel) {
   if (rel.end_reason) return 'ended';
@@ -10,7 +10,8 @@ function deriveCardStatus(rel) {
   if (!rel.latest_status) return clusterDisabled ? 'disabled' : 'unknown';
   if (rel.latest_status === 'error') return 'error';
   if (rel.latest_status === 'disabled' || clusterDisabled) return 'disabled';
-  const isSnapshot = (rel.replication_mode || '').includes('SNAPSHOT');
+  if (rel.latest_status === 'running') return 'running';
+  const isSnapshot = rel.replication_mode === 'REPLICATION_SNAPSHOT_POLICY';
   if (!isSnapshot) {
     const lag = rel.latest_lag_seconds;
     const thresh = (rel.lag_threshold_minutes ?? rel.default_threshold ?? 60) * 60;
@@ -37,7 +38,16 @@ export default function DashboardPage() {
   useEffect(() => { load(); const iv = setInterval(load, 30000); return () => clearInterval(iv); }, [load]);
 
   const threshold = parseInt(settings.default_lag_threshold_minutes) || 60;
-  const augmented = rels.map(r => ({ ...r, default_threshold: threshold }));
+  const augmented = rels.map(r => {
+    let latest_raw_job_status = null;
+    if (r.latest_status === 'running' && r.latest_raw_data) {
+      try {
+        const raw = JSON.parse(r.latest_raw_data);
+        latest_raw_job_status = raw.replication_job_status || null;
+      } catch {}
+    }
+    return { ...r, default_threshold: threshold, latest_raw_job_status };
+  });
 
   const counts = augmented.reduce((acc, r) => {
     const s = deriveCardStatus(r);
@@ -157,7 +167,9 @@ export default function DashboardPage() {
                     <div className="rel-meta">
                       <div className="rel-meta-item">
                         <Clock size={11} />
-                        {(rel.replication_mode || '').includes('SNAPSHOT')
+                        {status === 'running' && rel.latest_raw_job_status
+                          ? <JobProgressDisplay jobStatus={rel.latest_raw_job_status} compact />
+                          : rel.replication_mode === 'REPLICATION_SNAPSHOT_POLICY'
                           ? <SnapshotQueueDisplay
                               queueCount={rel.replication_enabled == 0 ? 0 : rel.latest_lag_seconds}
                               threshold={(rel.snapshot_queue_threshold ?? parseInt(settings.default_snapshot_queue_threshold) ?? 3)}
