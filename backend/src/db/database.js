@@ -104,6 +104,19 @@ function initSchema() {
       polled_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS replication_job_stats (
+      id TEXT PRIMARY KEY,
+      relationship_id TEXT NOT NULL REFERENCES replication_relationships(id) ON DELETE CASCADE,
+      cluster_id TEXT NOT NULL,
+      bytes_transferred INTEGER,
+      files_transferred INTEGER,
+      throughput_current INTEGER,
+      throughput_overall INTEGER,
+      percent_complete REAL,
+      captured_at DATETIME NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_job_stats_rel ON replication_job_stats(relationship_id, captured_at DESC);
     CREATE INDEX IF NOT EXISTS idx_poll_results_rel ON poll_results(relationship_id, polled_at DESC);
     CREATE INDEX IF NOT EXISTS idx_alert_log_rel ON alert_log(relationship_id, sent_at DESC);
   `)
@@ -125,11 +138,13 @@ function initSchema() {
   if (!cols.includes('alert_recipients')) {
     db.exec("ALTER TABLE replication_relationships ADD COLUMN alert_recipients TEXT");
   }
+  // Create job stats table if missing (can't ALTER for new tables, CREATE IF NOT EXISTS handles it)
 
   // Insert default settings if not present
   const defaults = {
     default_lag_threshold_minutes: '60',
     alert_retention_days: '90',
+    job_stats_retention_days: '30',
     default_snapshot_queue_threshold: '3',
     poll_interval_seconds: '60',
     alert_cooldown_minutes: '30',

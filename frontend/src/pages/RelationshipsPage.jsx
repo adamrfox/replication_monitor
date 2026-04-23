@@ -5,7 +5,7 @@ import { api } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { StatusBadge, LagDisplay, SnapshotQueueDisplay, JobProgressDisplay, RelativeTime, Spinner, EmptyState, Modal, ConfirmModal, formatDate } from '../components/shared';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 // ─── List Page ──────────────────────────────────────────────────────────────
 
@@ -273,13 +273,14 @@ export function RelationshipDetailPage() {
   const { toast } = useToast();
   const [data, setData] = useState(null);
   const [settings, setSettings] = useState({});
+  const [jobStats, setJobStats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('overview');
   const [editOpen, setEditOpen] = useState(false);
 
   const load = useCallback(async () => {
-    const [d, s] = await Promise.all([api.relationship(id), api.settings()]);
-    setData(d); setSettings(s); setLoading(false);
+    const [d, s, js] = await Promise.all([api.relationship(id), api.settings(), api.jobStats(id)]);
+    setData(d); setSettings(s); setJobStats(js); setLoading(false);
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
@@ -331,9 +332,9 @@ export function RelationshipDetailPage() {
 
       <div className="page-body">
         <div className="tabs">
-          {['overview', 'history', 'alerts'].map(t => (
+          {['overview', 'history', 'job-stats', 'alerts'].map(t => (
             <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
-              {t.charAt(0).toUpperCase() + t.slice(1)}
+              {t === 'job-stats' ? 'Job Stats' : t.charAt(0).toUpperCase() + t.slice(1)}
               {t === 'alerts' && data.alerts?.filter(a => !a.acknowledged).length > 0 &&
                 <span style={{ marginLeft: 6, background: 'var(--red)', color: '#fff', borderRadius: 10, padding: '0 5px', fontSize: 10 }}>
                   {data.alerts.filter(a => !a.acknowledged).length}
@@ -422,27 +423,9 @@ export function RelationshipDetailPage() {
               </div>
             </div>
 
-            {chartData.length > 1 && (
-              <div className="card" style={{ gridColumn: '1 / -1' }}>
-                <div className="card-header"><span className="card-title">Lag Trend (minutes)</span></div>
-                <div className="card-body" style={{ padding: '18px 8px' }}>
-                  <ResponsiveContainer width="100%" height={160}>
-                    <LineChart data={chartData} margin={{ top: 0, right: 20, bottom: 0, left: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                      <XAxis dataKey="t" tick={{ fontSize: 10, fill: 'var(--text-2)' }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: 'var(--text-2)' }} tickLine={false} axisLine={false} />
-                      <Tooltip
-                        contentStyle={{ background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 4, fontSize: 12 }}
-                        labelStyle={{ color: 'var(--text-1)' }}
-                        itemStyle={{ color: 'var(--accent)' }}
-                      />
-                      <Line type="monotone" dataKey="lag" stroke="var(--accent)" strokeWidth={2} dot={false} connectNulls />
-                      {threshold && <Line type="monotone" dataKey={() => threshold} stroke="var(--red)" strokeWidth={1} strokeDasharray="4 4" dot={false} name="Threshold" />}
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
+            <div className="card" style={{ gridColumn: '1 / -1', padding: '12px 18px', background: 'var(--blackberry-850)', border: '1px solid var(--blackberry-700)', borderRadius: 'var(--radius)' }}>
+              <span style={{ fontSize: 12, color: 'var(--lychee-500)' }}>Lag trend and job throughput charts have moved to the <strong style={{ color: 'var(--agave-400)' }}>Job Stats</strong> tab.</span>
+            </div>
           </div>
         )}
 
@@ -473,6 +456,10 @@ export function RelationshipDetailPage() {
               </tbody>
             </table>
           </div>
+        )}
+
+        {tab === 'job-stats' && (
+          <JobStatsTab jobStats={jobStats} history={data.history || []} threshold={threshold} isSnapshot={data.replication_mode === 'REPLICATION_SNAPSHOT_POLICY'} />
         )}
 
         {tab === 'alerts' && (
@@ -513,5 +500,205 @@ export function RelationshipDetailPage() {
 
       {editOpen && <EditRelModal rel={data} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); load(); }} />}
     </>
+  );
+}
+
+// ─── Job Stats Tab ─────────────────────────────────────────────────────────────
+
+function fmtBytes(n) {
+  n = parseInt(n);
+  if (isNaN(n) || n === 0) return '0 B';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 ** 2) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1024 ** 3) return (n / 1024 ** 2).toFixed(1) + ' MB';
+  return (n / 1024 ** 3).toFixed(2) + ' GB';
+}
+
+function fmtThroughput(n) {
+  n = parseInt(n);
+  if (isNaN(n) || n === 0) return '0 B/s';
+  if (n < 1024) return n + ' B/s';
+  if (n < 1024 ** 2) return (n / 1024).toFixed(1) + ' KB/s';
+  if (n < 1024 ** 3) return (n / 1024 ** 2).toFixed(1) + ' MB/s';
+  return (n / 1024 ** 3).toFixed(2) + ' GB/s';
+}
+
+function JobStatsTab({ jobStats, history, threshold, isSnapshot }) {
+  const hasStats = jobStats && jobStats.length > 0;
+  const hasHistory = history && history.length > 0;
+
+  if (!hasStats && !hasHistory) {
+    return (
+      <div className="card">
+        <EmptyState
+          icon={<span style={{ fontSize: 32 }}>📊</span>}
+          title="No data yet"
+          body="Lag history and job stats will appear here after polling begins."
+        />
+      </div>
+    );
+  }
+
+  // Build a unified timeline from all poll timestamps + job stat timestamps
+  // Key: ISO timestamp string → merged data point
+  const pointMap = new Map();
+
+  // Add lag from poll history (all polls)
+  for (const h of [...history].reverse()) {
+    const ts = h.polled_at;
+    if (!pointMap.has(ts)) pointMap.set(ts, { ts, lag: null, bytes: null, files: null, throughput: null });
+    const p = pointMap.get(ts);
+    if (!isSnapshot && h.lag_seconds != null) {
+      p.lag = Math.round(h.lag_seconds / 60);
+    }
+  }
+
+  // Add job stats (only captured when running)
+  for (const s of jobStats) {
+    const ts = s.captured_at;
+    if (!pointMap.has(ts)) pointMap.set(ts, { ts, lag: null, bytes: null, files: null, throughput: null });
+    const p = pointMap.get(ts);
+    p.bytes = Math.round(parseInt(s.bytes_transferred) / (1024 ** 2));
+    p.files = parseInt(s.files_transferred);
+    p.throughput = Math.round(parseInt(s.throughput_current) / 1024);
+  }
+
+  // Sort by time and format X label
+  const merged = [...pointMap.values()]
+    .sort((a, b) => a.ts < b.ts ? -1 : 1)
+    .map(p => ({
+      ...p,
+      t: new Date(p.ts).toLocaleString(undefined, {
+        month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      }),
+    }));
+
+  const latest = hasStats ? jobStats[jobStats.length - 1] : null;
+
+  const chartProps = { margin: { top: 4, right: 20, bottom: 0, left: 0 } };
+  const tooltipStyle = {
+    contentStyle: { background: 'var(--blackberry-850)', border: '1px solid var(--blackberry-700)', borderRadius: 4, fontSize: 12 },
+    labelStyle: { color: 'var(--lychee-300)' },
+  };
+  // Shared X axis props — same ticks across all charts
+  const xAxisProps = {
+    dataKey: 't',
+    tick: { fontSize: 9, fill: 'var(--lychee-500)' },
+    tickLine: false,
+    interval: 'preserveStartEnd',
+  };
+  const yAxisProps = {
+    tick: { fontSize: 10, fill: 'var(--lychee-500)' },
+    tickLine: false,
+    axisLine: false,
+    width: 48,
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* Summary row — latest job stats */}
+      {latest && (
+        <div className="stats-grid">
+          {[
+            { label: 'Data Moved', value: fmtBytes(latest.bytes_transferred) },
+            { label: 'Files Moved', value: parseInt(latest.files_transferred).toLocaleString() },
+            { label: 'Current Throughput', value: fmtThroughput(latest.throughput_current) },
+            { label: 'Avg Throughput', value: fmtThroughput(latest.throughput_overall) },
+          ].map(({ label, value }) => (
+            <div key={label} className="stat-card">
+              <div className="stat-label">{label}</div>
+              <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--agave-400)', marginTop: 6, fontFamily: 'var(--font-mono)' }}>{value}</div>
+              <div className="stat-sub">last captured</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Lag chart — shown for non-snapshot relationships */}
+      {!isSnapshot && (
+        <div className="card">
+          <div className="card-header"><span className="card-title">Lag (minutes)</span></div>
+          <div className="card-body" style={{ padding: '18px 8px' }}>
+            <ResponsiveContainer width="100%" height={160}>
+              <LineChart data={merged} {...chartProps}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--blackberry-700)" />
+                <XAxis {...xAxisProps} />
+                <YAxis {...yAxisProps} />
+                <Tooltip {...tooltipStyle} formatter={v => v != null ? [`${v}m`, 'Lag'] : ['—', 'Lag']} />
+                <Line type="monotone" dataKey="lag" stroke="var(--agave-400)" strokeWidth={2} dot={false} connectNulls />
+                {threshold && (
+                  <ReferenceLine y={threshold} stroke="var(--pomegranate-500)" strokeDasharray="4 4" label={{ value: `${threshold}m`, position: 'right', fill: 'var(--pomegranate-400)', fontSize: 10 }} />
+                )}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Data Moved chart */}
+      {hasStats && (
+        <div className="card">
+          <div className="card-header"><span className="card-title">Data Moved (MB)</span></div>
+          <div className="card-body" style={{ padding: '18px 8px' }}>
+            <ResponsiveContainer width="100%" height={160}>
+              <LineChart data={merged} {...chartProps}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--blackberry-700)" />
+                <XAxis {...xAxisProps} />
+                <YAxis {...yAxisProps} />
+                <Tooltip {...tooltipStyle} formatter={v => v != null ? [`${v} MB`, 'Data Moved'] : ['—', 'Data Moved']} />
+                <Line type="monotone" dataKey="bytes" stroke="var(--mint-400)" strokeWidth={2} dot={false} connectNulls={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Throughput chart */}
+      {hasStats && (
+        <div className="card">
+          <div className="card-header"><span className="card-title">Throughput (KB/s)</span></div>
+          <div className="card-body" style={{ padding: '18px 8px' }}>
+            <ResponsiveContainer width="100%" height={160}>
+              <LineChart data={merged} {...chartProps}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--blackberry-700)" />
+                <XAxis {...xAxisProps} />
+                <YAxis {...yAxisProps} />
+                <Tooltip {...tooltipStyle} formatter={v => v != null ? [`${v} KB/s`, 'Throughput'] : ['—', 'Throughput']} />
+                <Line type="monotone" dataKey="throughput" stroke="var(--agave-500)" strokeWidth={2} dot={false} connectNulls={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Files chart */}
+      {hasStats && (
+        <div className="card">
+          <div className="card-header"><span className="card-title">Files Transferred</span></div>
+          <div className="card-body" style={{ padding: '18px 8px' }}>
+            <ResponsiveContainer width="100%" height={160}>
+              <LineChart data={merged} {...chartProps}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--blackberry-700)" />
+                <XAxis {...xAxisProps} />
+                <YAxis {...yAxisProps} />
+                <Tooltip {...tooltipStyle} formatter={v => v != null ? [v?.toLocaleString(), 'Files'] : ['—', 'Files']} />
+                <Line type="monotone" dataKey="files" stroke="var(--eggplant-400)" strokeWidth={2} dot={false} connectNulls={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {!hasStats && (
+        <div className="card" style={{ padding: '20px 18px', border: '1px dashed var(--blackberry-600)' }}>
+          <p style={{ fontSize: 13, color: 'var(--lychee-500)', textAlign: 'center' }}>
+            Throughput charts appear when a replication job is caught running during a poll.
+          </p>
+        </div>
+      )}
+
+    </div>
   );
 }

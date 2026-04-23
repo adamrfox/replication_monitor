@@ -56,6 +56,7 @@ export const api = {
   importDiscovered: (data) => apiFetch('/relationships/import-discovered', { method: 'POST', body: data }),
   acknowledgeAlert: (relId, alertId) => apiFetch(`/relationships/${relId}/alerts/${alertId}/acknowledge`, { method: 'POST' }),
   acknowledgeAllRelAlerts: (relId) => apiFetch(`/relationships/${relId}/alerts/acknowledge-all`, { method: 'POST' }),
+  jobStats: (relId, days) => apiFetch(`/relationships/${relId}/job-stats?days=${days || 30}`),
 
   // Settings
   settings: () => apiFetch('/settings'),

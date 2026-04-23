@@ -83,9 +83,14 @@ export default function SettingsPage() {
                   <input className="form-control" type="number" min="0" value={settings.alert_retention_days ?? ''} onChange={e => set('alert_retention_days', e.target.value)} />
                   <div className="form-hint">Alerts older than this are auto-deleted each poll cycle. Set to 0 to keep forever.</div>
                 </div>
+                <div className="form-group">
+                  <label className="form-label">Job Stats Retention (days)</label>
+                  <input className="form-control" type="number" min="1" value={settings.job_stats_retention_days ?? ''} onChange={e => set('job_stats_retention_days', e.target.value)} />
+                  <div className="form-hint">How long to keep active job throughput history. Default 30 days.</div>
+                </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button className="btn btn-primary" onClick={() => handleSave(['app_name','default_lag_threshold_minutes','default_snapshot_queue_threshold','poll_interval_seconds','alert_cooldown_minutes','alert_retention_days'])} disabled={saving}>
+                <button className="btn btn-primary" onClick={() => handleSave(['app_name','default_lag_threshold_minutes','default_snapshot_queue_threshold','poll_interval_seconds','alert_cooldown_minutes','alert_retention_days','job_stats_retention_days'])} disabled={saving}>
                   {saving ? 'Saving…' : 'Save General Settings'}
                 </button>
               </div>

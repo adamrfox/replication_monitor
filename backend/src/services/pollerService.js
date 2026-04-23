@@ -148,14 +148,19 @@ async function pollAll() {
   const defaultSnapshotQueueThreshold = parseInt(settings.default_snapshot_queue_threshold) || 3;
   const cooldownMinutes = parseInt(settings.alert_cooldown_minutes) || 30;
 
-  // Clean up old alert log entries based on retention setting
+  // Clean up old alert log entries
   const retentionDays = parseInt(settings.alert_retention_days) || 90;
+  const jobStatsRetentionDays = parseInt(settings.job_stats_retention_days) || 30;
   if (retentionDays > 0) {
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
     const deleted = db.prepare('DELETE FROM alert_log WHERE sent_at < ?').run(cutoff);
     if (deleted.changes > 0) {
       console.log(`[Poller] Pruned ${deleted.changes} alert log entries older than ${retentionDays} days`);
     }
+  }
+  if (jobStatsRetentionDays > 0) {
+    const statsCutoff = new Date(Date.now() - jobStatsRetentionDays * 24 * 60 * 60 * 1000).toISOString();
+    db.prepare('DELETE FROM replication_job_stats WHERE captured_at < ?').run(statsCutoff);
   }
 
   const clusters = db.prepare('SELECT * FROM clusters').all();
@@ -202,6 +207,25 @@ async function pollAll() {
 
         // Backfill paths from status if not already stored
         updateRelationshipPaths(db, rel.id, statusData);
+
+        // Capture job stats when actively running
+        if (statusData.job_state === 'REPLICATION_RUNNING' && statusData.replication_job_status) {
+          const js = statusData.replication_job_status;
+          db.prepare(`
+            INSERT INTO replication_job_stats
+              (id, relationship_id, cluster_id, bytes_transferred, files_transferred,
+               throughput_current, throughput_overall, percent_complete, captured_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            uuidv4(), rel.id, cluster.id,
+            parseInt(js.bytes_transferred) || 0,
+            parseInt(js.files_transferred) || 0,
+            parseInt(js.throughput_current) || 0,
+            parseInt(js.throughput_overall) || 0,
+            (js.percent_complete || 0) * 100,
+            new Date().toISOString()
+          );
+        }
 
         const replMode = statusData.replication_mode || rel.replication_mode || '';
         const isSnapshot = replMode === 'REPLICATION_SNAPSHOT_POLICY'; // hybrid uses continuous lag logic

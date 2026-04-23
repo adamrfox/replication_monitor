@@ -20,6 +20,7 @@ const ADMIN_SETTINGS = [
   ...PUBLIC_SETTINGS,
   'alert_cooldown_minutes',
   'alert_retention_days',
+  'job_stats_retention_days',
   'smtp_host',
   'smtp_port',
   'smtp_secure',

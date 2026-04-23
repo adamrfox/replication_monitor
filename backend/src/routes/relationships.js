@@ -190,6 +190,21 @@ router.post('/:id/alerts/acknowledge-all', adminOnly, (req, res) => {
   res.json({ acknowledged: result.changes });
 });
 
+// GET /api/relationships/:id/job-stats  - job performance history
+router.get('/:id/job-stats', (req, res) => {
+  const db = getDb();
+  const days = Math.min(90, parseInt(req.query.days) || 30);
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const stats = db.prepare(`
+    SELECT bytes_transferred, files_transferred, throughput_current,
+           throughput_overall, percent_complete, captured_at
+    FROM replication_job_stats
+    WHERE relationship_id = ? AND captured_at > ?
+    ORDER BY captured_at ASC
+  `).all(req.params.id, cutoff);
+  res.json(stats);
+});
+
 // POST /api/relationships/:id/alerts/:alertId/acknowledge  (admin only)
 router.post('/:id/alerts/:alertId/acknowledge', adminOnly, (req, res) => {
   const db = getDb();
