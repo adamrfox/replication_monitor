@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { GitCompare, ArrowLeft, Edit2, Trash2, ToggleLeft, ToggleRight, Clock, RefreshCw, ChevronRight } from 'lucide-react';
 import { api } from '../api/client';
@@ -274,21 +274,33 @@ export function RelationshipDetailPage() {
   const [data, setData] = useState(null);
   const [settings, setSettings] = useState({});
   const [jobStats, setJobStats] = useState([]);
+  const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('overview');
   const [editOpen, setEditOpen] = useState(false);
+  const [days, setDays] = useState(1);
+  const mountedRef = useRef(false);
 
   const load = useCallback(async () => {
-    const [d, s, js] = await Promise.all([api.relationship(id), api.settings(), api.jobStats(id)]);
-    setData(d); setSettings(s); setJobStats(js); setLoading(false);
+    const [d, s, js] = await Promise.all([api.relationship(id, 1), api.settings(), api.jobStats(id, 1)]);
+    setData(d); setSettings(s); setHistory(d.history || []); setJobStats(js);
+    setLoading(false);
   }, [id]);
   useEffect(() => { load(); }, [load]);
+
+  // Reload time-windowed data when days changes — skip on first mount
+  useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; return; }
+    Promise.all([api.relationship(id, days), api.jobStats(id, days)])
+      .then(([d, js]) => { setHistory(d.history || []); setJobStats(js); })
+      .catch(() => {});
+  }, [days, id]);
 
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><Spinner /></div>;
   if (!data) return <div className="page-body">Relationship not found.</div>;
 
   const threshold = data.lag_threshold_minutes ?? parseInt(settings.default_lag_threshold_minutes) ?? 60;
-  const latest = data.history?.[0];
+  const latest = history?.[0];
   let activeJobStatus = null;
   if (latest?.status === 'running') {
     try { activeJobStatus = JSON.parse(latest.raw_data || '{}').replication_job_status || null; } catch {}
@@ -296,7 +308,7 @@ export function RelationshipDetailPage() {
   const status = latest?.status === 'error' ? 'error' : !latest ? 'unknown' :
     (latest.lag_seconds > threshold * 60 ? 'warning' : latest.status);
 
-  const chartData = [...(data.history || [])].reverse().slice(-50).map(h => ({
+  const chartData = [...(history || [])].reverse().slice(-50).map(h => ({
     t: new Date(h.polled_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
     lag: h.lag_seconds ? Math.round(h.lag_seconds / 60) : null,
   }));
@@ -434,7 +446,7 @@ export function RelationshipDetailPage() {
             <table className="data-table">
               <thead><tr><th>Time</th><th>Status</th><th>Lag / Progress</th><th>Error</th></tr></thead>
               <tbody>
-                {(data.history || []).map((h, i) => {
+                {(history || []).map((h, i) => {
                   let jobStatus = null;
                   if (h.status === 'running') {
                     try { jobStatus = JSON.parse(h.raw_data || '{}').replication_job_status || null; } catch {}
@@ -459,7 +471,7 @@ export function RelationshipDetailPage() {
         )}
 
         {tab === 'job-stats' && (
-          <JobStatsTab jobStats={jobStats} history={data.history || []} threshold={threshold} isSnapshot={data.replication_mode === 'REPLICATION_SNAPSHOT_POLICY'} data={data} />
+          <JobStatsTab jobStats={jobStats} history={history} threshold={threshold} isSnapshot={data.replication_mode === 'REPLICATION_SNAPSHOT_POLICY'} data={data} days={days} setDays={setDays} settings={settings} />
         )}
 
         {tab === 'alerts' && (
@@ -523,55 +535,92 @@ function fmtThroughput(n) {
   return (n / 1024 ** 3).toFixed(2) + ' GB/s';
 }
 
-function JobStatsTab({ jobStats, history, threshold, isSnapshot, data }) {
+function JobStatsTab({ jobStats, history, threshold, isSnapshot, data, days, setDays, settings }) {
   const hasStats = jobStats && jobStats.length > 0;
   const hasHistory = history && history.length > 0;
 
-  if (!hasStats && !hasHistory) {
+  if (!hasHistory) {
     return (
       <div className="card">
         <EmptyState
           icon={<span style={{ fontSize: 32 }}>📊</span>}
           title="No data yet"
-          body="Lag history and job stats will appear here after polling begins."
+          body="Charts will appear here after polling begins."
         />
       </div>
     );
   }
 
+  // Derive max retention from settings — the longer of the two retention periods
+  const maxRetentionDays = Math.max(
+    parseInt(settings.job_stats_retention_days) || 30,
+    parseInt(settings.alert_retention_days) || 90
+  );
+
+  // Preset options bounded by retention
+  const presets = [
+    { label: '1h',   days: 1/24 },
+    { label: '6h',   days: 6/24 },
+    { label: '12h',  days: 12/24 },
+    { label: '1d',   days: 1 },
+    { label: '7d',   days: 7 },
+    { label: '30d',  days: 30 },
+    { label: '90d',  days: 90 },
+  ].filter(p => p.days <= maxRetentionDays);
+
+  // Cutoff for filtering merged data
+  const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
+
   // Build a unified timeline from all poll timestamps + job stat timestamps
   // Key: ISO timestamp string → merged data point
   const pointMap = new Map();
 
+  // Normalize any timestamp to a clean UTC ISO string for consistent keying/sorting
+  const normTs = (ts) => {
+    if (!ts) return ts;
+    const s = String(ts);
+    if (s.endsWith('Z')) return s;
+    if (s.includes('T')) return s + 'Z';
+    return s.replace(' ', 'T') + 'Z';
+  };
+
   // Add lag from poll history (all polls)
   for (const h of [...history].reverse()) {
-    const ts = h.polled_at;
-    if (!pointMap.has(ts)) pointMap.set(ts, { ts, lag: null, bytes: null, files: null, throughput: null });
+    const ts = normTs(h.polled_at);
+    if (!pointMap.has(ts)) pointMap.set(ts, { ts, lag: null, bytes: 0, files: 0, throughput: 0 });
     const p = pointMap.get(ts);
     if (!isSnapshot && h.lag_seconds != null) {
       p.lag = Math.round(h.lag_seconds / 60);
     }
   }
 
-  // Add job stats (only captured when running)
+  // Add job stats (only captured when running) — idle points stay null so gaps show between runs
+  const jobStatsByTs = new Map(jobStats.map(s => [normTs(s.captured_at), s]));
   for (const s of jobStats) {
-    const ts = s.captured_at;
-    if (!pointMap.has(ts)) pointMap.set(ts, { ts, lag: null, bytes: null, files: null, throughput: null });
+    const ts = normTs(s.captured_at);
+    if (!pointMap.has(ts)) pointMap.set(ts, { ts, lag: null, bytes: 0, files: 0, throughput: 0 });
     const p = pointMap.get(ts);
     p.bytes = Math.round(parseInt(s.bytes_transferred) / (1024 ** 2));
     p.files = parseInt(s.files_transferred);
     p.throughput = Math.round(parseInt(s.throughput_current) / 1024);
   }
 
-  // Sort by time and format X label
+  // Choose X label format based on selected time range
+  const xLabelFormat = days <= 1/24        // 1 hour
+    ? { hour: '2-digit', minute: '2-digit', second: '2-digit' }
+    : days <= 1                             // up to 1 day
+    ? { hour: '2-digit', minute: '2-digit' }
+    : days <= 7                             // up to 7 days
+    ? { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }
+    : { month: 'short', day: 'numeric' };  // 7+ days — just date
+
+  // Sort by time, filter to selected range, and format X label
   const merged = [...pointMap.values()]
+    .filter(p => new Date(p.ts).getTime() >= cutoffMs)
     .sort((a, b) => a.ts < b.ts ? -1 : 1)
     .map(p => ({
       ...p,
-      t: new Date(p.ts).toLocaleString(undefined, {
-        month: 'short', day: 'numeric',
-        hour: '2-digit', minute: '2-digit',
-      }),
+      t: new Date(p.ts).toLocaleString(undefined, xLabelFormat),
     }));
 
   const latest = hasStats ? jobStats[jobStats.length - 1] : null;
@@ -715,20 +764,49 @@ function JobStatsTab({ jobStats, history, threshold, isSnapshot, data }) {
             <div key={label} className="stat-card">
               <div className="stat-label">{label}</div>
               <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--agave-400)', marginTop: 6, fontFamily: 'var(--font-mono)' }}>{value}</div>
-              <div className="stat-sub">last captured</div>
+              <div className="stat-sub">{hasStats ? 'last captured' : 'no job data yet'}</div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Export buttons */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-        <button className="btn btn-secondary btn-sm" onClick={printPDF}>
-          ↓ Export PDF
-        </button>
-        <button className="btn btn-secondary btn-sm" onClick={exportCSV}>
-          ↓ Export CSV
-        </button>
+      {/* Time range selector */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {presets.map(p => (
+            <button
+              key={p.label}
+              className={`btn btn-sm ${Math.abs(days - p.days) < 0.001 ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setDays(p.days)}
+            >
+              {p.label}
+            </button>
+          ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+              className="form-control form-control-mono"
+              type="number"
+              min="0.04"
+              max={maxRetentionDays}
+              step="1"
+              value={Number.isInteger(days) ? days : ''}
+              onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) setDays(v); }}
+              placeholder="days"
+              style={{ width: 70, padding: '4px 8px', fontSize: 12 }}
+            />
+            <span style={{ fontSize: 12, color: 'var(--lychee-500)' }}>days</span>
+          </div>
+        </div>
+
+        {/* Export buttons */}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary btn-sm" onClick={printPDF}>
+            ↓ Export PDF
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={exportCSV}>
+            ↓ Export CSV
+          </button>
+        </div>
       </div>
 
       {/* Lag chart — shown for non-snapshot relationships */}
@@ -753,8 +831,7 @@ function JobStatsTab({ jobStats, history, threshold, isSnapshot, data }) {
       )}
 
       {/* Data Moved chart */}
-      {hasStats && (
-        <div className="card">
+      <div className="card">
           <div className="card-header"><span className="card-title">Data Moved (MB)</span></div>
           <div className="card-body" style={{ padding: '18px 8px' }}>
             <ResponsiveContainer width="100%" height={160}>
@@ -763,16 +840,14 @@ function JobStatsTab({ jobStats, history, threshold, isSnapshot, data }) {
                 <XAxis {...xAxisProps} />
                 <YAxis {...yAxisProps} />
                 <Tooltip {...tooltipStyle} formatter={v => v != null ? [`${v} MB`, 'Data Moved'] : ['—', 'Data Moved']} />
-                <Line type="monotone" dataKey="bytes" stroke="var(--mint-400)" strokeWidth={2} dot={false} connectNulls={false} />
+                <Line type="monotone" dataKey="bytes" stroke="var(--mint-400)" strokeWidth={2} dot={false} connectNulls />
               </LineChart>
             </ResponsiveContainer>
           </div>
-        </div>
-      )}
+      </div>
 
       {/* Throughput chart */}
-      {hasStats && (
-        <div className="card">
+      <div className="card">
           <div className="card-header"><span className="card-title">Throughput (KB/s)</span></div>
           <div className="card-body" style={{ padding: '18px 8px' }}>
             <ResponsiveContainer width="100%" height={160}>
@@ -781,16 +856,14 @@ function JobStatsTab({ jobStats, history, threshold, isSnapshot, data }) {
                 <XAxis {...xAxisProps} />
                 <YAxis {...yAxisProps} />
                 <Tooltip {...tooltipStyle} formatter={v => v != null ? [`${v} KB/s`, 'Throughput'] : ['—', 'Throughput']} />
-                <Line type="monotone" dataKey="throughput" stroke="var(--agave-500)" strokeWidth={2} dot={false} connectNulls={false} />
+                <Line type="monotone" dataKey="throughput" stroke="var(--agave-500)" strokeWidth={2} dot={false} connectNulls />
               </LineChart>
             </ResponsiveContainer>
           </div>
-        </div>
-      )}
+      </div>
 
       {/* Files chart */}
-      {hasStats && (
-        <div className="card">
+      <div className="card">
           <div className="card-header"><span className="card-title">Files Transferred</span></div>
           <div className="card-body" style={{ padding: '18px 8px' }}>
             <ResponsiveContainer width="100%" height={160}>
@@ -799,20 +872,13 @@ function JobStatsTab({ jobStats, history, threshold, isSnapshot, data }) {
                 <XAxis {...xAxisProps} />
                 <YAxis {...yAxisProps} />
                 <Tooltip {...tooltipStyle} formatter={v => v != null ? [v?.toLocaleString(), 'Files'] : ['—', 'Files']} />
-                <Line type="monotone" dataKey="files" stroke="var(--eggplant-400)" strokeWidth={2} dot={false} connectNulls={false} />
+                <Line type="monotone" dataKey="files" stroke="var(--eggplant-400)" strokeWidth={2} dot={false} connectNulls />
               </LineChart>
             </ResponsiveContainer>
           </div>
-        </div>
-      )}
+      </div>
 
-      {!hasStats && (
-        <div className="card" style={{ padding: '20px 18px', border: '1px dashed var(--blackberry-600)' }}>
-          <p style={{ fontSize: 13, color: 'var(--lychee-500)', textAlign: 'center' }}>
-            Throughput charts appear when a replication job is caught running during a poll.
-          </p>
-        </div>
-      )}
+
 
     </div>
   );

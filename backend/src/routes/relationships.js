@@ -18,7 +18,11 @@ router.get('/', (req, res) => {
            p.lag_seconds as latest_lag_seconds,
            p.error_message as latest_error,
            p.raw_data as latest_raw_data,
-           p.polled_at as last_polled_at
+           CASE
+             WHEN p.polled_at LIKE '%T%Z' THEN p.polled_at
+             WHEN p.polled_at LIKE '%T%'  THEN p.polled_at || 'Z'
+             ELSE REPLACE(p.polled_at, ' ', 'T') || 'Z'
+           END AS last_polled_at
     FROM replication_relationships r
     JOIN clusters c ON c.id = r.cluster_id
     LEFT JOIN poll_results p ON p.id = (
@@ -43,11 +47,21 @@ router.get('/:id', (req, res) => {
 
   if (!rel) return res.status(404).json({ error: 'Relationship not found' });
 
+  const historyDays = Math.min(90, parseFloat(req.query.days) || 1);
+  const historyCutoff = new Date(Date.now() - historyDays * 24 * 60 * 60 * 1000).toISOString();
   const history = db.prepare(`
-    SELECT status, lag_seconds, error_message, raw_data, polled_at
-    FROM poll_results WHERE relationship_id = ?
-    ORDER BY polled_at DESC LIMIT 100
-  `).all(req.params.id);
+    SELECT status, lag_seconds, error_message, raw_data,
+      -- Normalize old SQLite timestamps (no T or Z) to ISO 8601 UTC
+      CASE
+        WHEN polled_at LIKE '%T%Z' THEN polled_at
+        WHEN polled_at LIKE '%T%'  THEN polled_at || 'Z'
+        ELSE REPLACE(polled_at, ' ', 'T') || 'Z'
+      END AS polled_at
+    FROM poll_results
+    WHERE relationship_id = ?
+      AND REPLACE(REPLACE(polled_at, ' ', 'T'), 'Z', '') || 'Z' >= ?
+    ORDER BY polled_at DESC LIMIT 5000
+  `).all(req.params.id, historyCutoff);
 
   const alerts = db.prepare(`
     SELECT * FROM alert_log WHERE relationship_id = ?

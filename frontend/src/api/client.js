@@ -49,7 +49,7 @@ export const api = {
 
   // Relationships
   relationships: () => apiFetch('/relationships'),
-  relationship: (id) => apiFetch(`/relationships/${id}`),
+  relationship: (id, days) => apiFetch(`/relationships/${id}${days ? '?days=' + days : ''}`),
   createRelationship: (data) => apiFetch('/relationships', { method: 'POST', body: data }),
   updateRelationship: (id, data) => apiFetch(`/relationships/${id}`, { method: 'PUT', body: data }),
   deleteRelationship: (id) => apiFetch(`/relationships/${id}`, { method: 'DELETE' }),
