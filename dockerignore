@@ -1,0 +1,29 @@
+# Dependencies — reinstalled during build
+node_modules
+*/node_modules
+
+# Build output — rebuilt during Docker build
+frontend/dist
+
+# Development files
+*.log
+.env
+.env.*
+dev.sh
+
+# Data
+data/
+*.db
+
+# Git
+.git
+.gitignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode
+.idea
+*.swp
