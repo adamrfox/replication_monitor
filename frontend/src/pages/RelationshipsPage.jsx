@@ -596,12 +596,21 @@ function JobStatsTab({ jobStats, history, threshold, snapshotThreshold, isSnapsh
     return s.replace(' ', 'T') + 'Z';
   };
 
-  // Add lag from poll history (all polls)
+  // Add lag/queue from poll history (all polls)
   for (const h of [...history].reverse()) {
     const ts = normTs(h.polled_at);
     if (!pointMap.has(ts)) pointMap.set(ts, { ts, lag: null, bytes: 0, files: 0, throughput: 0 });
     const p = pointMap.get(ts);
-    if (!isSnapshot && h.lag_seconds != null) {
+    if (isSnapshot) {
+      // Always read queued_snapshot_count from raw_data for snapshot rels —
+      // lag_seconds may hold time-based data for disabled relationships
+      try {
+        const raw = JSON.parse(h.raw_data || '{}');
+        p.lag = typeof raw.queued_snapshot_count === 'number' ? raw.queued_snapshot_count : 0;
+      } catch {
+        p.lag = 0;
+      }
+    } else if (h.lag_seconds != null) {
       p.lag = Math.round(h.lag_seconds / 60);
     }
   }
@@ -683,7 +692,7 @@ function JobStatsTab({ jobStats, history, threshold, snapshotThreshold, isSnapsh
     });
 
     const chartLabels = [
-      ...(isSnapshot ? [] : ['Lag (minutes)']),
+      ...(isSnapshot ? ['Queued Snapshots'] : ['Lag (minutes)']),
       ...(hasStats ? ['Data Moved (MB)', 'Throughput (KB/s)', 'Files Transferred'] : []),
     ];
 
@@ -821,26 +830,38 @@ function JobStatsTab({ jobStats, history, threshold, snapshotThreshold, isSnapsh
         </div>
       </div>
 
-      {/* Lag chart — shown for non-snapshot relationships */}
-      {!isSnapshot && (
-        <div className="card">
-          <div className="card-header"><span className="card-title">Lag (minutes)</span></div>
-          <div className="card-body" style={{ padding: '18px 8px' }}>
-            <ResponsiveContainer width="100%" height={160}>
-              <LineChart data={merged} {...chartProps}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--blackberry-700)" />
-                <XAxis {...xAxisProps} />
-                <YAxis {...yAxisProps} />
-                <Tooltip {...tooltipStyle} formatter={v => v != null ? [`${v}m`, 'Lag'] : ['—', 'Lag']} />
-                <Line type="monotone" dataKey="lag" stroke="var(--agave-400)" strokeWidth={2} dot={false} connectNulls />
-                {threshold && (
-                  <ReferenceLine y={threshold} stroke="var(--pomegranate-500)" strokeDasharray="4 4" label={{ value: `${threshold}m`, position: 'right', fill: 'var(--pomegranate-400)', fontSize: 10 }} />
-                )}
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+      {/* Lag chart — time for continuous, queue depth for snapshot */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">{isSnapshot ? 'Queued Snapshots' : 'Lag (minutes)'}</span>
         </div>
-      )}
+        <div className="card-body" style={{ padding: '18px 8px' }}>
+          <ResponsiveContainer width="100%" height={160}>
+            <LineChart data={merged} {...chartProps}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--blackberry-700)" />
+              <XAxis {...xAxisProps} />
+              <YAxis {...yAxisProps} allowDecimals={false} />
+              <Tooltip
+                {...tooltipStyle}
+                formatter={v => v != null
+                  ? isSnapshot ? [`${v}`, 'Queued'] : [`${v}m`, 'Lag']
+                  : ['—', isSnapshot ? 'Queued' : 'Lag']}
+              />
+              <Line type="monotone" dataKey="lag" stroke="var(--agave-400)" strokeWidth={2} dot={false} connectNulls />
+              {isSnapshot
+                ? snapshotThreshold && (
+                    <ReferenceLine y={snapshotThreshold} stroke="var(--pomegranate-500)" strokeDasharray="4 4"
+                      label={{ value: `max ${snapshotThreshold}`, position: 'right', fill: 'var(--pomegranate-400)', fontSize: 10 }} />
+                  )
+                : threshold && (
+                    <ReferenceLine y={threshold} stroke="var(--pomegranate-500)" strokeDasharray="4 4"
+                      label={{ value: `${threshold}m`, position: 'right', fill: 'var(--pomegranate-400)', fontSize: 10 }} />
+                  )
+              }
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
 
       {/* Data Moved chart */}
       <div className="card">

@@ -155,7 +155,7 @@ export default function DashboardPage() {
                           ? <JobProgressDisplay jobStatus={rel.latest_raw_job_status} compact />
                           : rel.replication_mode === 'REPLICATION_SNAPSHOT_POLICY'
                           ? <SnapshotQueueDisplay
-                              queueCount={rel.replication_enabled == 0 ? 0 : rel.latest_lag_seconds}
+                              queueCount={rel.replication_enabled == 0 ? 0 : (rel.latest_lag_seconds > 1000 ? 0 : rel.latest_lag_seconds)}
                               threshold={(rel.snapshot_queue_threshold ?? parseInt(settings.default_snapshot_queue_threshold) ?? 3)}
                             />
                           : <LagDisplay lagSeconds={rel.latest_lag_seconds} thresholdMinutes={rel.lag_threshold_minutes ?? threshold} />

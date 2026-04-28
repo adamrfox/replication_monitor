@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useAppSettings } from '../hooks/useAppSettings';
 import { Settings, Mail, Clock, Bell, Send, CheckCircle } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../hooks/useToast';
@@ -6,6 +7,7 @@ import { Spinner } from '../components/shared';
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const { appName, setAppName } = useAppSettings();
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -26,6 +28,10 @@ export default function SettingsPage() {
       const payload = keys ? Object.fromEntries(keys.map(k => [k, settings[k] ?? ''])) : settings;
       await api.updateSettings(payload);
       toast('Settings saved', 'success');
+      if (payload.app_name) {
+        document.title = payload.app_name;
+        localStorage.setItem('qm_app_name', payload.app_name);
+      }
     } catch (e) { toast(e.message, 'error'); }
     setSaving(false);
   };

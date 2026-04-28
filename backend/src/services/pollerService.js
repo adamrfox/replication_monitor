@@ -229,12 +229,10 @@ async function pollAll() {
 
         const replMode = statusData.replication_mode || rel.replication_mode || '';
         const isSnapshot = replMode === 'REPLICATION_SNAPSHOT_POLICY'; // hybrid uses continuous lag logic
-        const isDisabled = statusData.replication_enabled === false;
-        const lagSeconds = isSnapshot && !isDisabled
-          // Active snapshot rel: store queue depth so UI can show count vs threshold
+        const lagSeconds = isSnapshot
+          // Always store queue depth for snapshot rels — never time-based
+          // (raw_data has queued_snapshot_count for the chart; lag_seconds is just for alerting)
           ? (statusData.queued_snapshot_count ?? 0)
-          // Disabled snapshot rel or continuous rel: store time-based lag from recovery_point
-          // A disabled snapshot rel with a 2-year-old recovery_point should still surface that lag
           : extractLagSeconds(statusData);
         const jobStatus  = extractStatus(statusData);
         const errorMsg   = statusData.error_from_last_job || null;
