@@ -1,28 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { api } from '../api/client';
+import { useAppSettings } from '../hooks/useAppSettings';
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const { appName } = useAppSettings();
   const navigate = useNavigate();
   const [form, setForm] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [appName, setAppName] = useState(
-    localStorage.getItem('qm_app_name') || 'Qumulo Replication Monitor'
-  );
-
-  useEffect(() => {
-    // Fetch app name even on login page (no auth required for public settings)
-    api.settings().then(s => {
-      if (s.app_name) {
-        setAppName(s.app_name);
-        document.title = s.app_name;
-        localStorage.setItem('qm_app_name', s.app_name);
-      }
-    }).catch(() => {});
-  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
