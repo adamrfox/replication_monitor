@@ -4,7 +4,7 @@ import { GitCompare, ArrowLeft, Edit2, Trash2, ToggleLeft, ToggleRight, Clock, R
 import { api } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
-import { StatusBadge, LagDisplay, SnapshotQueueDisplay, JobProgressDisplay, RelativeTime, Spinner, EmptyState, Modal, ConfirmModal, formatDate } from '../components/shared';
+import { StatusBadge, LagDisplay, SnapshotQueueDisplay, JobProgressDisplay, RelativeTime, Spinner, EmptyState, Modal, ConfirmModal, formatDate, deriveStatus } from '../components/shared';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 // ─── List Page ──────────────────────────────────────────────────────────────
@@ -71,7 +71,6 @@ export function RelationshipsPage() {
                 <tr>
                   <th>Name</th>
                   <th>Cluster</th>
-                  <th>Direction</th>
                   <th>Status</th>
                   <th>Lag / Queued</th>
                   <th>Threshold / Max</th>
@@ -81,18 +80,9 @@ export function RelationshipsPage() {
               </thead>
               <tbody>
                 {filtered.map(rel => {
-                  const lagThresh = rel.lag_threshold_minutes ?? threshold;
                   const isSnapshot = rel.replication_mode === 'REPLICATION_SNAPSHOT_POLICY';
-                  const clusterDisabled = rel.replication_enabled == 0 && rel.replication_enabled !== null;
-                  // For continuous rels, check lag even if disabled — old recovery_point matters
-                  const lagExceedsThreshold = !isSnapshot && rel.latest_lag_seconds > lagThresh * 60;
-                  const status = rel.end_reason ? 'ended'
-                    : rel.latest_status === 'error' ? 'error'
-                    : !rel.latest_status ? 'unknown'
-                    : (rel.latest_status === 'disabled' || clusterDisabled) ? 'disabled'
-                    : rel.latest_status === 'running' ? 'running'
-                    : lagExceedsThreshold ? 'warning'
-                    : 'ok';
+                  const lagThresh = rel.lag_threshold_minutes ?? threshold;
+                  const status = deriveStatus(rel, threshold, parseInt(settings.default_snapshot_queue_threshold) || 3);
                   return (
                     <tr key={rel.id} style={{ opacity: rel.enabled ? 1 : 0.5 }}>
                       <td>
@@ -101,7 +91,6 @@ export function RelationshipsPage() {
                         </Link>
                       </td>
                       <td className="text-muted">{rel.cluster_name}</td>
-                      <td><span className={`badge ${rel.direction === 'source' ? 'badge-running' : 'badge-viewer'}`}>{rel.direction}</span></td>
                       <td>
                         {!rel.enabled
                           ? <span className="badge badge-unknown">monitoring off</span>
@@ -307,8 +296,20 @@ export function RelationshipDetailPage() {
   if (latest?.status === 'running') {
     try { activeJobStatus = JSON.parse(latest.raw_data || '{}').replication_job_status || null; } catch {}
   }
-  const status = latest?.status === 'error' ? 'error' : !latest ? 'unknown' :
-    (latest.lag_seconds > threshold * 60 ? 'warning' : latest.status);
+  // Use shared deriveStatus so detail page header always matches dashboard
+  const status = deriveStatus(
+    {
+      end_reason: data.end_reason,
+      replication_enabled: data.replication_enabled,
+      latest_status: latest?.status,
+      replication_mode: data.replication_mode,
+      latest_lag_seconds: latest?.lag_seconds,
+      lag_threshold_minutes: data.lag_threshold_minutes,
+      snapshot_queue_threshold: data.snapshot_queue_threshold,
+    },
+    parseInt(settings.default_lag_threshold_minutes) || 60,
+    parseInt(settings.default_snapshot_queue_threshold) || 3
+  );
 
   const chartData = [...(history || [])].reverse().slice(-50).map(h => ({
     t: new Date(h.polled_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
@@ -365,7 +366,6 @@ export function RelationshipDetailPage() {
                 {[
                   ['Qumulo ID', data.qumulo_id, true],
                   ['Cluster', `${data.cluster_name} (${data.cluster_host})`],
-                  ['Direction', data.direction],
                   ['Source Path', data.source_path, true],
                   ['Target Host', data.target_host, true],
                   ['Target Path', data.target_path, true],

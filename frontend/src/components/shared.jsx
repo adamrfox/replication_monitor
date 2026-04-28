@@ -1,5 +1,31 @@
 import { X } from 'lucide-react';
 
+/**
+ * Derive the display status for a relationship — single source of truth
+ * used by both the dashboard cards and the detail page header.
+ * rel must have: end_reason, replication_enabled, latest_status (or status),
+ *                replication_mode, lag_seconds (or latest_lag_seconds),
+ *                lag_threshold_minutes, snapshot_queue_threshold
+ * defaultThreshold: system default lag threshold in minutes
+ * defaultSnapshotThreshold: system default snapshot queue threshold
+ */
+export function deriveStatus(rel, defaultThreshold = 60, defaultSnapshotThreshold = 3) {
+  if (rel.end_reason) return 'ended';
+  const clusterDisabled = rel.replication_enabled == 0 && rel.replication_enabled !== null;
+  const latestStatus = rel.latest_status || rel.status;
+  if (!latestStatus) return clusterDisabled ? 'disabled' : 'unknown';
+  if (latestStatus === 'error') return 'error';
+  if (latestStatus === 'disabled' || clusterDisabled) return 'disabled';
+  if (latestStatus === 'running') return 'running';
+  const isSnapshot = rel.replication_mode === 'REPLICATION_SNAPSHOT_POLICY';
+  if (!isSnapshot) {
+    const lag = rel.lag_seconds ?? rel.latest_lag_seconds;
+    const thresh = (rel.lag_threshold_minutes ?? defaultThreshold) * 60;
+    if (lag !== null && lag !== undefined && lag > thresh) return 'warning';
+  }
+  return 'ok';
+}
+
 export function Modal({ title, onClose, children, footer, size = '' }) {
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>

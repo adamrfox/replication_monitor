@@ -2,23 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { RefreshCw, AlertTriangle, CheckCircle, Clock, Activity, ArrowRight } from 'lucide-react';
 import { api } from '../api/client';
-import { StatusBadge, LagDisplay, SnapshotQueueDisplay, JobProgressDisplay, RelativeTime, Spinner, EmptyState } from '../components/shared';
-
-function deriveCardStatus(rel) {
-  if (rel.end_reason) return 'ended';
-  const clusterDisabled = rel.replication_enabled == 0 && rel.replication_enabled !== null;
-  if (!rel.latest_status) return clusterDisabled ? 'disabled' : 'unknown';
-  if (rel.latest_status === 'error') return 'error';
-  if (rel.latest_status === 'disabled' || clusterDisabled) return 'disabled';
-  if (rel.latest_status === 'running') return 'running';
-  const isSnapshot = rel.replication_mode === 'REPLICATION_SNAPSHOT_POLICY';
-  if (!isSnapshot) {
-    const lag = rel.latest_lag_seconds;
-    const thresh = (rel.lag_threshold_minutes ?? rel.default_threshold ?? 60) * 60;
-    if (lag !== null && lag > thresh) return 'warning';
-  }
-  return 'ok';
-}
+import { StatusBadge, LagDisplay, SnapshotQueueDisplay, JobProgressDisplay, RelativeTime, Spinner, EmptyState, deriveStatus } from '../components/shared';
 
 export default function DashboardPage() {
   const [rels, setRels] = useState([]);
@@ -50,12 +34,12 @@ export default function DashboardPage() {
   });
 
   const counts = augmented.reduce((acc, r) => {
-    const s = deriveCardStatus(r);
+    const s = deriveStatus(r, threshold, parseInt(settings.default_snapshot_queue_threshold) || 3);
     acc[s] = (acc[s] || 0) + 1;
     return acc;
   }, {});
 
-  const visible = filter === 'all' ? augmented : augmented.filter(r => deriveCardStatus(r) === filter);
+  const visible = filter === 'all' ? augmented : augmented.filter(r => deriveStatus(r, threshold, parseInt(settings.default_snapshot_queue_threshold) || 3) === filter);
 
   return (
     <>
@@ -141,7 +125,7 @@ export default function DashboardPage() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 14 }}>
             {visible.map(rel => {
-              const status = deriveCardStatus(rel);
+              const status = deriveStatus(rel, threshold, parseInt(settings.default_snapshot_queue_threshold) || 3);
               return (
                 <Link to={`/relationships/${rel.id}`} key={rel.id} style={{ textDecoration: 'none' }}>
                   <div className={`rel-card status-${status}`}>
