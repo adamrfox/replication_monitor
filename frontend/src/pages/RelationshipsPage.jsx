@@ -299,7 +299,9 @@ export function RelationshipDetailPage() {
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><Spinner /></div>;
   if (!data) return <div className="page-body">Relationship not found.</div>;
 
+  const isSnapshotRel = data.replication_mode === 'REPLICATION_SNAPSHOT_POLICY';
   const threshold = data.lag_threshold_minutes ?? parseInt(settings.default_lag_threshold_minutes) ?? 60;
+  const snapshotThreshold = data.snapshot_queue_threshold ?? parseInt(settings.default_snapshot_queue_threshold) ?? 3;
   const latest = history?.[0];
   let activeJobStatus = null;
   if (latest?.status === 'running') {
@@ -367,7 +369,11 @@ export function RelationshipDetailPage() {
                   ['Source Path', data.source_path, true],
                   ['Target Host', data.target_host, true],
                   ['Target Path', data.target_path, true],
-                  ['Lag Threshold', `${threshold} minutes${data.lag_threshold_minutes ? ' (custom)' : ' (default)'}`],
+                  [isSnapshotRel ? 'Queue Threshold' : 'Lag Threshold',
+                    isSnapshotRel
+                      ? `${snapshotThreshold} queued snapshots${data.snapshot_queue_threshold ? ' (custom)' : ' (default)'}`
+                      : `${threshold} minutes${data.lag_threshold_minutes ? ' (custom)' : ' (default)'}`
+                  ],
                   ['Monitoring', data.enabled ? 'Enabled' : 'Disabled'],
                   ['Cluster Replication', data.end_reason
                     ? <span className="badge badge-error">Ended</span>
@@ -420,9 +426,15 @@ export function RelationshipDetailPage() {
                 {latest ? <>
                   {[
                     ['Status', <StatusBadge status={status} />],
-                    ['Lag / Queue', (data.replication_mode || '').includes('SNAPSHOT')
-                      ? <SnapshotQueueDisplay queueCount={latest.lag_seconds} threshold={(data.snapshot_queue_threshold ?? parseInt(settings.default_snapshot_queue_threshold) ?? 3)} />
-                      : <LagDisplay lagSeconds={latest.lag_seconds} thresholdMinutes={threshold} />],
+                    [isSnapshotRel ? 'Queued Snapshots' : 'Lag',
+                      isSnapshotRel
+                        // For disabled snapshot rels lag_seconds holds time-based data — show 0 queued
+                        ? <SnapshotQueueDisplay
+                            queueCount={data.replication_enabled == 0 ? 0 : latest.lag_seconds}
+                            threshold={snapshotThreshold}
+                          />
+                        : <LagDisplay lagSeconds={latest.lag_seconds} thresholdMinutes={threshold} />
+                    ],
                     ['Last Polled', formatDate(latest.polled_at)],
                     ['Error', latest.error_message && <span style={{ color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{latest.error_message}</span>],
                   ].map(([label, val]) => val && (
@@ -471,7 +483,7 @@ export function RelationshipDetailPage() {
         )}
 
         {tab === 'job-stats' && (
-          <JobStatsTab jobStats={jobStats} history={history} threshold={threshold} isSnapshot={data.replication_mode === 'REPLICATION_SNAPSHOT_POLICY'} data={data} days={days} setDays={setDays} settings={settings} />
+          <JobStatsTab jobStats={jobStats} history={history} threshold={threshold} snapshotThreshold={snapshotThreshold} isSnapshot={isSnapshotRel} data={data} days={days} setDays={setDays} settings={settings} />
         )}
 
         {tab === 'alerts' && (
@@ -535,7 +547,7 @@ function fmtThroughput(n) {
   return (n / 1024 ** 3).toFixed(2) + ' GB/s';
 }
 
-function JobStatsTab({ jobStats, history, threshold, isSnapshot, data, days, setDays, settings }) {
+function JobStatsTab({ jobStats, history, threshold, snapshotThreshold, isSnapshot, data, days, setDays, settings }) {
   const hasStats = jobStats && jobStats.length > 0;
   const hasHistory = history && history.length > 0;
 
