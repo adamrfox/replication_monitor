@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { api } from '../api/client';
+
 
 const DEFAULT_NAME = 'Qumulo Replication Monitor';
 
@@ -20,14 +20,14 @@ export function AppSettingsProvider({ children }) {
     localStorage.setItem('qm_app_name', n);
   };
 
-  // Fetch once on mount — no dependencies so it never re-runs
+  // Fetch once on mount using public endpoint (no auth required)
   useEffect(() => {
-    api.settings()
+    document.title = localStorage.getItem('qm_app_name') || DEFAULT_NAME;
+    fetch('/api/settings/public')
+      .then(r => r.ok ? r.json() : null)
       .then(s => { if (s?.app_name) setAppName(s.app_name); })
       .catch(() => {});
-    // Set title from cached value immediately while fetch is in flight
-    document.title = localStorage.getItem('qm_app_name') || DEFAULT_NAME;
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <AppSettingsContext.Provider value={{ appName, setAppName }}>

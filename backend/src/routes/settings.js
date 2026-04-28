@@ -7,6 +7,13 @@ const { testSmtpConfig, sendAlertEmail } = require('../services/alertService');
 const { restartPoller } = require('../services/pollerService');
 
 const router = express.Router();
+// GET /api/settings/public — no auth required, returns only non-sensitive display settings
+router.get('/public', (req, res) => {
+  const db = getDb();
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'app_name'").get();
+  res.json({ app_name: row?.value || 'Qumulo Replication Monitor' });
+});
+
 router.use(authMiddleware);
 
 const PUBLIC_SETTINGS = [
