@@ -85,7 +85,7 @@ export function RelationshipsPage() {
                   const status = deriveStatus(rel, threshold, parseInt(settings.default_snapshot_queue_threshold) || 3);
                   return (
                     <tr key={rel.id} style={{ opacity: rel.enabled ? 1 : 0.5 }}>
-                      <td>
+                      <td style={{ maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         <Link to={`/relationships/${rel.id}`} style={{ color: 'var(--text-0)', fontWeight: 500 }}>
                           {rel.display_name || rel.qumulo_id}
                         </Link>
@@ -112,7 +112,7 @@ export function RelationshipsPage() {
                         }
                       </td>
                       <td className="text-muted text-sm"><RelativeTime ts={rel.last_polled_at} /></td>
-                      <td>
+                      <td style={{ whiteSpace: 'nowrap', minWidth: 120, width: 120 }}>
                         <div style={{ display: 'flex', gap: 4 }}>
                           <Link to={`/relationships/${rel.id}`} className="btn btn-ghost btn-icon btn-sm" title="View detail">
                             <ChevronRight size={14} />
